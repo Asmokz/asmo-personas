@@ -1,0 +1,60 @@
+# ── Secrets ───────────────────────────────────────────────────────────────────
+.env
+*.key
+*.pem
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+.installed.cfg
+
+# ── Virtualenvs ───────────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env.local
+
+# ── Hatch / uv ────────────────────────────────────────────────────────────────
+.hatch/
+.uv/
+
+# ── Pytest / coverage ─────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+
+# ── Mypy / Ruff / type checkers ───────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+
+# ── Data / runtime files ──────────────────────────────────────────────────────
+data/
+*.jsonl
+femto_data/
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+# (docker-compose.yml et Dockerfiles sont versionnés)
+
+# ── Éditeurs ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/

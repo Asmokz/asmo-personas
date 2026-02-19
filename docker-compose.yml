@@ -1,0 +1,120 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ASMO Personas — Docker Compose
+#
+# Build context is always the project root so each Dockerfile can COPY
+# the shared commons/ directory.
+#
+# Ollama is assumed to run on the host at localhost:11434.
+# The extra_hosts entry maps host.docker.internal → host gateway on Linux.
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-common: &common
+  restart: unless-stopped
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  environment:
+    ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+    ASMO_OLLAMA_MODEL: "${ASMO_OLLAMA_MODEL:-mistral:7b}"
+    ASMO_REDIS_URL: "redis://redis:6379"
+    ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
+    ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
+
+services:
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FEMTO ─────────────────────────────────────────────────────────────────
+  femto:
+    <<: *common
+    build:
+      context: .
+      dockerfile: femto/Dockerfile
+    environment:
+      ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      ASMO_OLLAMA_MODEL: "${ASMO_OLLAMA_MODEL:-mistral:7b}"
+      ASMO_REDIS_URL: "redis://redis:6379"
+      ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
+      ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
+      FEMTO_DISCORD_TOKEN: "${FEMTO_DISCORD_TOKEN}"
+      FEMTO_REPORT_CHANNEL_ID: "${FEMTO_REPORT_CHANNEL_ID:-}"
+      FEMTO_METRICS_FILE: "/data/metrics.json"
+      FEMTO_CMD_TIMEOUT: "${FEMTO_CMD_TIMEOUT:-10}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - femto_data:/data
+      # Mount host /proc read-only so free/uptime/mpstat report host stats.
+      # Comment this out if running in an environment where it causes issues.
+      - /proc:/proc:ro
+    # pid: host   # Uncomment for full host-level process visibility
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── ALITA ─────────────────────────────────────────────────────────────────
+  alita:
+    <<: *common
+    build:
+      context: .
+      dockerfile: alita/Dockerfile
+    environment:
+      ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      ASMO_OLLAMA_MODEL: "${ASMO_OLLAMA_MODEL:-mistral:7b}"
+      ASMO_REDIS_URL: "redis://redis:6379"
+      ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
+      ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
+      ALITA_DISCORD_TOKEN: "${ALITA_DISCORD_TOKEN}"
+      ALITA_BRIEFING_CHANNEL_ID: "${ALITA_BRIEFING_CHANNEL_ID:-}"
+      ALITA_BRIEFING_HOUR: "${ALITA_BRIEFING_HOUR:-9}"
+      ALITA_WEATHER_API_KEY: "${ALITA_WEATHER_API_KEY:-}"
+      ALITA_WEATHER_CITY: "${ALITA_WEATHER_CITY:-Paris}"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ── GIORGIO ───────────────────────────────────────────────────────────────
+  giorgio:
+    <<: *common
+    build:
+      context: .
+      dockerfile: giorgio/Dockerfile
+    environment:
+      ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      ASMO_OLLAMA_MODEL: "${ASMO_OLLAMA_MODEL:-mistral:7b}"
+      ASMO_REDIS_URL: "redis://redis:6379"
+      ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
+      ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
+      GIORGIO_DISCORD_TOKEN: "${GIORGIO_DISCORD_TOKEN}"
+      GIORGIO_RECOMMENDATION_CHANNEL_ID: "${GIORGIO_RECOMMENDATION_CHANNEL_ID:-}"
+      GIORGIO_JELLYFIN_URL: "${GIORGIO_JELLYFIN_URL:-}"
+      GIORGIO_JELLYFIN_API_KEY: "${GIORGIO_JELLYFIN_API_KEY:-}"
+      GIORGIO_JELLYFIN_USER_ID: "${GIORGIO_JELLYFIN_USER_ID:-}"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis_data:
+  femto_data:
