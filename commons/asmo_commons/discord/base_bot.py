@@ -144,6 +144,27 @@ class BaseBot(commands.Bot, ABC):
 
             tool_calls = response_msg.get("tool_calls")
 
+            # Fallback: some Ollama models (e.g. qwen2.5-coder) output a JSON
+            # tool-call in `content` instead of the structured `tool_calls` field.
+            # We detect and normalise that pattern so the loop still works.
+            if not tool_calls:
+                tool_calls = _extract_tool_calls_from_content(
+                    response_msg.get("content") or ""
+                )
+                if tool_calls:
+                    response_msg["content"] = ""  # consumed by the parser
+                    logger.info("tool_call_from_content", names=[tc.get("function", {}).get("name") for tc in tool_calls])
+
+            logger.debug(
+                "llm_response",
+                iteration=iteration,
+                has_tool_calls=bool(tool_calls),
+                tool_names=[tc.get("function", {}).get("name") for tc in tool_calls]
+                if tool_calls
+                else [],
+                content_len=len(response_msg.get("content") or ""),
+            )
+
             # No tool calls → final text response
             if not tool_calls:
                 reply_text = response_msg.get("content", "").strip()
@@ -229,6 +250,57 @@ class BaseBot(commands.Bot, ABC):
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
+def _extract_tool_calls_from_content(content: str) -> list[dict]:
+    """Normalise text-based tool calls into the standard tool_calls format.
+
+    Some Ollama models ignore the structured tools API and instead output
+    the tool call as JSON in the message content, e.g.:
+
+        {"name": "get_disk_usage", "arguments": {}}
+
+    or wrapped in a code fence. This function detects that pattern and
+    converts it to the same format as a proper ``tool_calls`` list so the
+    rest of the processing loop doesn't need to care.
+    """
+    if not content:
+        return []
+
+    # Strip markdown code fences if present
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        stripped = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+    try:
+        data = json.loads(stripped.strip())
+    except (json.JSONDecodeError, ValueError):
+        # Try to extract a JSON object with a "name" key from anywhere in the text
+        import re
+        match = re.search(r'\{[^{}]*"name"\s*:[^{}]*\}', content, re.DOTALL)
+        if not match:
+            return []
+        try:
+            data = json.loads(match.group())
+        except (json.JSONDecodeError, ValueError):
+            return []
+
+    if not isinstance(data, dict):
+        return []
+
+    name = data.get("name") or data.get("function")
+    if not name:
+        return []
+
+    arguments = data.get("arguments") or data.get("args") or {}
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except (json.JSONDecodeError, ValueError):
+            arguments = {}
+
+    return [{"function": {"name": name, "arguments": arguments}}]
+
 
 async def send_long_message(
     channel: discord.abc.Messageable,

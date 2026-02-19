@@ -12,6 +12,9 @@ version: "3.9"
 
 x-common: &common
   restart: unless-stopped
+  dns:
+    - 8.8.8.8
+    - 8.8.4.4
   extra_hosts:
     - "host.docker.internal:host-gateway"
   environment:
@@ -60,9 +63,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - femto_data:/data
-      # Mount host /proc read-only so free/uptime/mpstat report host stats.
-      # Comment this out if running in an environment where it causes issues.
-      - /proc:/proc:ro
+      # Note: /proc/meminfo, /proc/uptime, /proc/loadavg already reflect HOST
+      # values inside Docker on Linux — no bind mount needed.
+      # Mounting /proc:/proc:ro would break container DNS resolution.
     # pid: host   # Uncomment for full host-level process visibility
     depends_on:
       redis:

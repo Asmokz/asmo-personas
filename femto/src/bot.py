@@ -43,7 +43,7 @@ class FemtoBot(BaseBot):
         self._executor = CommandExecutor(default_timeout=settings.femto_cmd_timeout)
         self.system_metrics = SystemMetrics(self._executor)
         self.docker_status = DockerStatus(
-            self._executor, max_log_lines=settings.femto_max_log_lines
+            max_log_lines=settings.femto_max_log_lines
         )
         self.network_monitor = NetworkMonitor(self._executor)
         self.log_analyzer = LogAnalyzer(self._executor, self.ollama)

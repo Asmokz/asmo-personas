@@ -4,9 +4,10 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     procps \
     iproute2 \
-    docker.io \
     sysstat \
     && rm -rf /var/lib/apt/lists/*
+# Note: Docker operations use the Python SDK (docker>=6.0.0) via the socket
+# mount — no CLI binary required.
 
 WORKDIR /app
 
