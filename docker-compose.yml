@@ -110,10 +110,24 @@ services:
       ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
       ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
       GIORGIO_DISCORD_TOKEN: "${GIORGIO_DISCORD_TOKEN}"
+      GIORGIO_CHANNEL_ID: "${GIORGIO_CHANNEL_ID}"
       GIORGIO_RECOMMENDATION_CHANNEL_ID: "${GIORGIO_RECOMMENDATION_CHANNEL_ID:-}"
       GIORGIO_JELLYFIN_URL: "${GIORGIO_JELLYFIN_URL:-}"
       GIORGIO_JELLYFIN_API_KEY: "${GIORGIO_JELLYFIN_API_KEY:-}"
       GIORGIO_JELLYFIN_USER_ID: "${GIORGIO_JELLYFIN_USER_ID:-}"
+      GIORGIO_SYNC_INTERVAL_HOURS: "${GIORGIO_SYNC_INTERVAL_HOURS:-6}"
+      GIORGIO_DB_HOST: "${GIORGIO_DB_HOST:-giorgio-db}"
+      GIORGIO_DB_PORT: "${GIORGIO_DB_PORT:-3306}"
+      GIORGIO_DB_NAME: "${GIORGIO_DB_NAME:-giorgio}"
+      GIORGIO_DB_USER: "${GIORGIO_DB_USER:-giorgio}"
+      GIORGIO_DB_PASSWORD: "${GIORGIO_DB_PASSWORD}"
+      GIORGIO_API_PORT: "${GIORGIO_API_PORT:-5555}"
+      GIORGIO_NOTIFICATION_USERS: "${GIORGIO_NOTIFICATION_USERS:-asmo}"
+    ports:
+      - "127.0.0.1:5555:5555"
+    networks:
+      - default
+      - giorgio_db
     depends_on:
       redis:
         condition: service_healthy
@@ -121,3 +135,9 @@ services:
 volumes:
   redis_data:
   femto_data:
+
+networks:
+  # Attach Giorgio to the existing MariaDB network without migrating data
+  giorgio_db:
+    external: true
+    name: giorgio_giorgio-network

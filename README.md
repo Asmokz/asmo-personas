@@ -6,16 +6,16 @@ Trois bots Discord autonomes pour le homelab **ASMO-01**.
 |-----|------|--------|
 | **FEMTO** | Monitoring système & Docker | ✅ Fonctionnel |
 | **ALITA** | Briefing matinal & assistant | 🏗️ Squelette |
-| **GIORGIO** | Médias & recommandations Jellyfin | 🏗️ Squelette |
+| **GIORGIO** | Médias, notations Jellyfin & recommandations | ✅ Fonctionnel |
 
 ## Architecture
 
 ```
 asmo-personas/
 ├── commons/              # Lib partagée (OllamaClient, BaseBot, ToolRegistry…)
-├── femto/                # Bot monitoring (complètement implémenté)
+├── femto/                # Bot monitoring (fonctionnel)
 ├── alita/                # Bot briefing (squelette à compléter)
-├── giorgio/              # Bot média (squelette à compléter)
+├── giorgio/              # Bot média (fonctionnel)
 ├── scripts/
 │   └── init_redis.py
 ├── docker-compose.yml
@@ -111,6 +111,64 @@ docker compose logs -f femto
 ### Rapport automatique
 
 FEMTO collecte les métriques toutes les heures et poste un rapport de 24h chaque jour à l'heure configurée (`FEMTO_HISTORY_REPORT_HOUR`, défaut : 9h00) sur le canal `FEMTO_REPORT_CHANNEL_ID`.
+
+---
+
+## Utilisation de GIORGIO
+
+GIORGIO gère les notifications de fin de visionnage Jellyfin, les notations et les recommandations culturelles. Il partage la base MariaDB de l'ancien conteneur `giorgio-bot`.
+
+### Notifications automatiques (webhook Jellyfin)
+
+Quand un utilisateur configuré (`GIORGIO_NOTIFICATION_USERS`) termine un film ou un épisode, Giorgio poste automatiquement un message de notation dans le canal `GIORGIO_CHANNEL_ID` :
+
+```
+🎬 Bellissimo! asmo vient de terminer Dune (2021)!
+
+Alors, caro mio, c'était comment? Note cette œuvre de 1 à 10!
+[1][2][3][4][5]
+[6][7][8][9][10]
+```
+
+Giorgio réagit différemment selon chaque note (de *"Madonna! quelle horreur"* à *"Perfetto! chef-d'œuvre absolu"*).
+
+Configurer Jellyfin pour envoyer les webhooks vers : `http://<asmo-01>:5555/api/webhook`
+
+### Messages naturels (mentionner le bot)
+
+```
+@GIORGIO quels sont mes films les mieux notés ?
+@GIORGIO suggère-moi quelque chose pour une soirée détente
+@GIORGIO qu'est-ce que j'ai regardé récemment ?
+@GIORGIO combien de films dans la bibliothèque ?
+@GIORGIO cherche Blade Runner dans Jellyfin
+```
+
+### Commandes préfixées
+
+| Commande | Description |
+|----------|-------------|
+| `!stats` | Statistiques globales : catalogue, visionnages, note moyenne |
+| `!toprated [n]` | Top *n* contenus les mieux notés (défaut : 10) |
+| `!mostwatched [n]` | Top *n* films/séries les plus vus, épisodes agrégés par série |
+| `!recent [n]` | *n* derniers visionnages avec notes (défaut : 10) |
+
+### API stats (HTTP)
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/stats` | Statistiques globales JSON |
+| `GET /api/stats/most-watched?limit=10` | Plus vus (séries agrégées) |
+| `GET /api/stats/top-rated?limit=10&min_ratings=1` | Mieux notés |
+| `GET /api/stats/recent?limit=10` | Activité récente |
+| `GET /api/stats/user/<jellyfin_id>` | Stats d'un utilisateur |
+| `POST /api/webhook` | Réception des événements Jellyfin |
+
+### Ajouter un outil à GIORGIO
+
+1. Implémenter la fonction dans `giorgio/src/tools/stats_tools.py` ou un nouveau fichier
+2. L'enregistrer dans `GiorgioBot._register_tools()` avec `@reg.register(...)`
+3. Rebuildez : `docker compose build giorgio && docker compose up -d giorgio`
 
 ---
 
@@ -219,7 +277,9 @@ async def nom_de_loutil(param1: str) -> str:
 
 - [ ] ALITA : intégration Google Calendar / Nextcloud CalDAV
 - [ ] ALITA : résumé d'actualités (RSS)
-- [ ] GIORGIO : webhooks Jellyfin (notification à l'ajout d'un contenu)
+- [ ] ALITA : intégration Google Calendar / Nextcloud CalDAV
+- [ ] ALITA : résumé d'actualités (RSS)
+- [ ] GIORGIO : sync périodique du catalogue Jellyfin (`GIORGIO_SYNC_INTERVAL_HOURS`)
+- [ ] GIORGIO : canal séparé pour les recommandations (`GIORGIO_RECOMMENDATION_CHANNEL_ID`)
 - [ ] Inter-persona : FEMTO → ALITA alerte si seuil critique dépassé
-- [ ] Persistence MariaDB pour l'historique long terme
 - [ ] Dashboard web minimaliste pour les métriques

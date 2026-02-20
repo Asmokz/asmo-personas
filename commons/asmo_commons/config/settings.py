@@ -62,9 +62,37 @@ class AlitaSettings(BaseAsmoSettings):
 class GiorgioSettings(BaseAsmoSettings):
     """Settings for the GIORGIO media bot."""
 
+    # Discord
     giorgio_discord_token: str
+    giorgio_channel_id: int  # Channel for rating notifications
     giorgio_recommendation_channel_id: Optional[int] = None
 
-    giorgio_jellyfin_url: Optional[str] = None
-    giorgio_jellyfin_api_key: Optional[str] = None
-    giorgio_jellyfin_user_id: Optional[str] = None
+    # Jellyfin
+    giorgio_jellyfin_url: str = ""
+    giorgio_jellyfin_api_key: str = ""
+    giorgio_jellyfin_user_id: str = ""
+    giorgio_sync_interval_hours: int = 6
+
+    # MariaDB (existing container via shared Docker network)
+    giorgio_db_host: str = "giorgio-db"
+    giorgio_db_port: int = 3306
+    giorgio_db_name: str = "giorgio"
+    giorgio_db_user: str = "giorgio"
+    giorgio_db_password: str = ""
+
+    # Webhook API
+    giorgio_api_port: int = 5555
+
+    # Comma-separated Jellyfin usernames that receive Discord rating prompts
+    giorgio_notification_users: str = "asmo"
+
+    @property
+    def db_url(self) -> str:
+        return (
+            f"mysql+pymysql://{self.giorgio_db_user}:{self.giorgio_db_password}"
+            f"@{self.giorgio_db_host}:{self.giorgio_db_port}/{self.giorgio_db_name}"
+        )
+
+    @property
+    def notification_users_list(self) -> list[str]:
+        return [u.strip().lower() for u in self.giorgio_notification_users.split(",") if u.strip()]
