@@ -12,6 +12,7 @@ import structlog
 from asmo_commons.config.settings import GiorgioSettings
 from asmo_commons.discord.base_bot import BaseBot, send_long_message
 from asmo_commons.llm.ollama_client import OllamaClient
+from asmo_commons.pubsub.redis_client import RedisPubSub
 from asmo_commons.tools.registry import ToolRegistry
 
 from .persona import RATING_REACTIONS, SYSTEM_PROMPT
@@ -35,10 +36,18 @@ class RatingView(View):
     red (1-3) → grey (4-6) → blurple (7-8) → green (9-10).
     """
 
-    def __init__(self, watchlog_id: int, content_name: str) -> None:
+    def __init__(
+        self,
+        watchlog_id: int,
+        content_name: str,
+        content_type: str = "movie",
+        on_rated=None,
+    ) -> None:
         super().__init__(timeout=86400)  # 24 h to respond
         self.watchlog_id = watchlog_id
         self.content_name = content_name
+        self.content_type = content_type
+        self._on_rated = on_rated  # optional async callback(rating, name, type)
 
         for i in range(1, 11):
             btn = Button(
@@ -76,6 +85,11 @@ class RatingView(View):
 
             db_service.update_rating(self.watchlog_id, rating)
             logger.info("rating_saved", content=self.content_name, rating=rating)
+            if self._on_rated:
+                try:
+                    await self._on_rated(rating, self.content_name, self.content_type)
+                except Exception as exc:
+                    logger.debug("on_rated_callback_error", error=str(exc))
             self.stop()
 
         return callback
@@ -106,6 +120,7 @@ class GiorgioBot(BaseBot):
             settings.giorgio_jellyfin_user_id,
         )
         self.recommendations = RecommendationEngine(self.jellyfin, self.ollama)
+        self.pubsub = RedisPubSub(settings.asmo_redis_url)
 
         self._registry = ToolRegistry()
         self._register_tools()
@@ -206,6 +221,11 @@ class GiorgioBot(BaseBot):
 
     async def setup_hook(self) -> None:
         self._register_prefix_commands()
+        try:
+            await self.pubsub.connect()
+            logger.info("giorgio_pubsub_connected")
+        except Exception as exc:
+            logger.warning("giorgio_pubsub_unavailable", error=str(exc))
         await super().setup_hook()
 
     async def on_ready(self) -> None:
@@ -217,6 +237,10 @@ class GiorgioBot(BaseBot):
             logger.warning("notification_channel_not_found", channel_id=self._channel_id)
 
     async def close(self) -> None:
+        try:
+            await self.pubsub.disconnect()
+        except Exception:
+            pass
         await self.ollama.close()
         await super().close()
 
@@ -248,7 +272,27 @@ class GiorgioBot(BaseBot):
             "Alors, *caro mio*, c'était comment? Note cette œuvre de 1 à 10!\n"
             "*(1 = mamma mia quelle horreur, 10 = chef-d'œuvre absolu)*"
         )
-        view = RatingView(watchlog_id=watchlog_id, content_name=content_name)
+        async def _publish_rating(rating: int, name: str, media_type: str) -> None:
+            try:
+                await self.pubsub.publish(
+                    "asmo.media.rated",
+                    source="giorgio",
+                    event_type="rating",
+                    data={
+                        "title": name,
+                        "rating": rating,
+                        "media_type": media_type,
+                    },
+                )
+            except Exception as exc:
+                logger.debug("rating_publish_error", error=str(exc))
+
+        view = RatingView(
+            watchlog_id=watchlog_id,
+            content_name=content_name,
+            content_type=content_type,
+            on_rated=_publish_rating,
+        )
         await self._notification_channel.send(content=msg, view=view)
         logger.info("rating_request_sent", content=content_name, user=username)
 

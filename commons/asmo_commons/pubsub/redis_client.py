@@ -16,6 +16,10 @@ CHANNEL_JELLYFIN = "asmo.events.jellyfin"
 CHANNEL_SYSTEM = "asmo.events.system"
 CHANNEL_ALERTS = "asmo.alerts"
 
+# Inter-persona channels (FEMTO → Alita, GIORGIO → Alita)
+CHANNEL_SYSTEM_ALERTS = "asmo.alerts.system"   # FEMTO publishes, Alita subscribes
+CHANNEL_MEDIA_RATED = "asmo.media.rated"        # GIORGIO publishes, Alita subscribes
+
 
 def make_event(source: str, event_type: str, data: Any) -> dict:
     """Build a standardised event payload."""

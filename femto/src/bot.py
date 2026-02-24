@@ -9,6 +9,7 @@ import structlog
 from asmo_commons.config.settings import FemtoSettings
 from asmo_commons.discord.base_bot import BaseBot, send_long_message
 from asmo_commons.llm.ollama_client import OllamaClient
+from asmo_commons.pubsub.redis_client import RedisPubSub
 from asmo_commons.tools.executor import CommandExecutor
 from asmo_commons.tools.registry import ToolDefinition, ToolRegistry
 
@@ -51,6 +52,9 @@ class FemtoBot(BaseBot):
         # Build registry
         self._registry = ToolRegistry()
         self._register_tools()
+
+        # Pub/Sub (optional — graceful if Redis unavailable)
+        self.pubsub = RedisPubSub(settings.asmo_redis_url)
 
         # Scheduler (started in setup_hook when event loop is running)
         self._scheduler = FemtoScheduler(self)
@@ -200,10 +204,19 @@ class FemtoBot(BaseBot):
         """Called by discord.py before the bot connects."""
         self._register_prefix_commands()
         self._scheduler.start()
+        try:
+            await self.pubsub.connect()
+            logger.info("femto_pubsub_connected")
+        except Exception as exc:
+            logger.warning("femto_pubsub_unavailable", error=str(exc))
         await super().setup_hook()
 
     async def close(self) -> None:
         self._scheduler.stop()
+        try:
+            await self.pubsub.disconnect()
+        except Exception:
+            pass
         await self.ollama.close()
         await super().close()
 

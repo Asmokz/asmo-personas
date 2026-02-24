@@ -83,20 +83,49 @@ services:
     build:
       context: .
       dockerfile: alita/Dockerfile
+    container_name: asmo-alita
     environment:
       ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
-      ASMO_OLLAMA_MODEL: "${ASMO_OLLAMA_MODEL:-mistral:7b}"
       ASMO_REDIS_URL: "redis://redis:6379"
       ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
       ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
+      # Discord
       ALITA_DISCORD_TOKEN: "${ALITA_DISCORD_TOKEN}"
+      ALITA_DISCORD_CHANNEL_ID: "${ALITA_DISCORD_CHANNEL_ID:-}"
       ALITA_BRIEFING_CHANNEL_ID: "${ALITA_BRIEFING_CHANNEL_ID:-}"
-      ALITA_BRIEFING_HOUR: "${ALITA_BRIEFING_HOUR:-9}"
+      ALITA_BRIEFING_HOUR: "${ALITA_BRIEFING_HOUR:-7}"
+      ALITA_BRIEFING_WEEKDAYS_ONLY: "${ALITA_BRIEFING_WEEKDAYS_ONLY:-true}"
+      # LLM
+      ALITA_OLLAMA_MODEL: "${ALITA_OLLAMA_MODEL:-mistral-nemo}"
+      # Weather
       ALITA_WEATHER_API_KEY: "${ALITA_WEATHER_API_KEY:-}"
-      ALITA_WEATHER_CITY: "${ALITA_WEATHER_CITY:-Paris}"
+      ALITA_WEATHER_CITY: "${ALITA_WEATHER_CITY:-Marseille,FR}"
+      # Stocks
+      ALITA_PORTFOLIO: "${ALITA_PORTFOLIO:-[]}"
+      # Home Assistant
+      ALITA_HA_URL: "${ALITA_HA_URL:-http://homeassistant:8123}"
+      ALITA_HA_TOKEN: "${ALITA_HA_TOKEN:-}"
+      # Spotify
+      ALITA_SPOTIFY_CLIENT_ID: "${ALITA_SPOTIFY_CLIENT_ID:-}"
+      ALITA_SPOTIFY_CLIENT_SECRET: "${ALITA_SPOTIFY_CLIENT_SECRET:-}"
+      ALITA_SPOTIFY_REDIRECT_URI: "${ALITA_SPOTIFY_REDIRECT_URI:-http://localhost:8888/spotify/callback}"
+      ALITA_SPOTIFY_PORT: "${ALITA_SPOTIFY_PORT:-8888}"
+      # SearXNG
+      ALITA_SEARXNG_URL: "${ALITA_SEARXNG_URL:-http://searxng:8080}"
+      # Database
+      ALITA_DB_PATH: "/data/alita.db"
+    volumes:
+      - alita_data:/data
+    ports:
+      - "127.0.0.1:8888:8888"   # Spotify OAuth callback (local only)
     depends_on:
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # ── GIORGIO ───────────────────────────────────────────────────────────────
   giorgio:
@@ -136,6 +165,7 @@ services:
 volumes:
   redis_data:
   femto_data:
+  alita_data:
 
 networks:
   # Attach Giorgio to the existing MariaDB network without migrating data

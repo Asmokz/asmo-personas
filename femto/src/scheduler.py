@@ -81,6 +81,10 @@ class FemtoScheduler:
 
         _append_metrics(bot.settings.femto_metrics_file, metrics)
         logger.info("metrics_collected", ts=now.isoformat())
+
+        # Publish to Redis for Alita (non-fatal)
+        await _publish_metrics_event(bot, metrics, now)
+
         return metrics
 
     # ------------------------------------------------------------------
@@ -185,6 +189,47 @@ def _load_metrics_summary(filepath: str, hours: int = 24) -> str:
         return f"Aucune entrée dans les {hours} dernières heures."
 
     return f"{len(entries)} snapshots collectés. Premier : {entries[0]['timestamp']}, dernier : {entries[-1]['timestamp']}"
+
+
+async def _publish_metrics_event(bot, metrics: dict, now: datetime) -> None:
+    """Publish a system event (and alert if thresholds exceeded) to Redis."""
+    try:
+        await bot.pubsub.publish(
+            "asmo.alerts.system",
+            source="femto",
+            event_type="metrics_snapshot",
+            data={"timestamp": now.isoformat(), "summary": "hourly metrics collected"},
+        )
+
+        # Simple anomaly detection — publish critical alert if needed
+        disk_str = metrics.get("system", {}).get("disk", "")
+        if disk_str and _disk_critical(disk_str):
+            await bot.pubsub.publish(
+                "asmo.alerts.system",
+                source="femto",
+                event_type="alert",
+                data={
+                    "severity": "critical",
+                    "message": f"⚠️ FEMTO : Disque critique détecté !\n{disk_str[:300]}",
+                },
+            )
+    except Exception as exc:
+        logger.debug("pubsub_publish_failed", error=str(exc))
+
+
+def _disk_critical(disk_output: str) -> bool:
+    """Return True if any disk shows >=90% usage in df output."""
+    for line in disk_output.splitlines():
+        parts = line.split()
+        for part in parts:
+            if part.endswith("%"):
+                try:
+                    pct = int(part.rstrip("%"))
+                    if pct >= 90:
+                        return True
+                except ValueError:
+                    pass
+    return False
 
 
 async def _sleep_until_hour(hour: int) -> None:

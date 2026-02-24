@@ -49,14 +49,40 @@ class FemtoSettings(BaseAsmoSettings):
 
 
 class AlitaSettings(BaseAsmoSettings):
-    """Settings for the ALITA briefing bot."""
+    """Settings for the ALITA personal assistant bot."""
 
+    # Discord
     alita_discord_token: str
+    alita_discord_channel_id: Optional[int] = None  # dedicated channel (responds to all messages)
     alita_briefing_channel_id: Optional[int] = None
-    alita_briefing_hour: int = 9
+    alita_briefing_hour: int = 7
+    alita_briefing_weekdays_only: bool = True  # skip Sat/Sun
 
+    # LLM — Alita uses a larger model than the default
+    alita_ollama_model: str = "mistral-nemo"
+
+    # Weather
     alita_weather_api_key: Optional[str] = None
-    alita_weather_city: str = "Paris"
+    alita_weather_city: str = "Marseille,FR"
+
+    # Stocks — JSON array: [{"symbol":"AAPL","shares":10,"avg_price":150.0}, ...]
+    alita_portfolio: str = "[]"
+
+    # Home Assistant
+    alita_ha_url: str = "http://homeassistant:8123"
+    alita_ha_token: Optional[str] = None
+
+    # Spotify OAuth
+    alita_spotify_client_id: Optional[str] = None
+    alita_spotify_client_secret: Optional[str] = None
+    alita_spotify_redirect_uri: str = "http://localhost:8888/spotify/callback"
+    alita_spotify_port: int = 8888
+
+    # SearXNG
+    alita_searxng_url: str = "http://searxng:8080"
+
+    # Database
+    alita_db_path: str = "/data/alita.db"
 
 
 class GiorgioSettings(BaseAsmoSettings):
