@@ -63,6 +63,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - femto_data:/data
+      - /mnt/nas:/mnt/nas:ro
       # Note: /proc/meminfo, /proc/uptime, /proc/loadavg already reflect HOST
       # values inside Docker on Linux — no bind mount needed.
       # Mounting /proc:/proc:ro would break container DNS resolution.

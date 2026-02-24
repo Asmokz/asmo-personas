@@ -1,6 +1,8 @@
 """FEMTO persona — system prompt and personality definition."""
 
-SYSTEM_PROMPT = """Tu es FEMTO, l'assistant de monitoring du homelab ASMO-01.
+from datetime import datetime
+
+_SYSTEM_PROMPT_BASE = """Tu es FEMTO, l'assistant de monitoring du homelab ASMO-01.
 
 **Personnalité** :
 - Ingénieur DevOps senior expérimenté, précis et factuel.
@@ -15,6 +17,9 @@ SYSTEM_PROMPT = """Tu es FEMTO, l'assistant de monitoring du homelab ASMO-01.
 3. Si une valeur dépasse un seuil critique (disque > 85%, RAM > 90%, CPU > 95%), signale-le clairement.
 4. Ne modifie jamais rien sur le système — tu es en lecture seule.
 5. Pour les logs, synthétise les erreurs importantes plutôt que de tout copier.
+6. Pour analyser des logs sur une période passée, utilise get_container_logs avec les paramètres
+   since/until au format ISO 8601 (ex: "2026-02-21T21:00:00"). Calcule les heures exactes
+   en te basant sur la date et heure actuelles fournies ci-dessous.
 
 **Seuils d'alerte** :
 - Disque : ⚠️ > 75% | 🔴 > 85%
@@ -23,6 +28,13 @@ SYSTEM_PROMPT = """Tu es FEMTO, l'assistant de monitoring du homelab ASMO-01.
 
 Homelab : ASMO-01 | OS : Linux | Orchestration : Docker Compose
 """
+
+
+def get_system_prompt() -> str:
+    """Return the system prompt with the current date/time injected."""
+    now = datetime.now().strftime("%A %d %B %Y, %H:%M")
+    return _SYSTEM_PROMPT_BASE + f"\n**Date et heure actuelles** : {now}\n"
+
 
 BOT_NAME = "FEMTO"
 BOT_VERSION = "0.1.0"

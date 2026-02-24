@@ -120,16 +120,18 @@ class FemtoScheduler:
                 bot.settings.femto_metrics_file, hours=24
             )
 
+            sys_metrics = metrics.get("system", {})
             prompt = (
                 "Génère un rapport de monitoring sur les 24 dernières heures pour le homelab ASMO-01.\n\n"
                 f"**Métriques actuelles :**\n"
-                f"Disque :\n{metrics.get('system', {}).get('disk', 'N/A')}\n\n"
-                f"Mémoire :\n{metrics.get('system', {}).get('memory', 'N/A')}\n\n"
-                f"CPU :\n{metrics.get('system', {}).get('cpu', 'N/A')}\n\n"
-                f"Uptime : {metrics.get('system', {}).get('uptime', 'N/A')}\n\n"
+                f"Disque système :\n{sys_metrics.get('disk', 'N/A')}\n\n"
+                f"NAS (/mnt/nas) :\n{sys_metrics.get('nas', 'N/A')}\n\n"
+                f"Mémoire :\n{sys_metrics.get('memory', 'N/A')}\n\n"
+                f"CPU :\n{sys_metrics.get('cpu', 'N/A')}\n\n"
+                f"Uptime : {sys_metrics.get('uptime', 'N/A')}\n\n"
                 f"Conteneurs :\n{metrics.get('docker', 'N/A')}\n\n"
                 f"**Résumé historique (24h)** :\n{history_summary}\n\n"
-                "Structure ton rapport avec : état général, points d'attention, tendances."
+                "Structure ton rapport avec : état général, points d'attention (disque NAS inclus), tendances."
             )
 
             try:

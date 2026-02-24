@@ -80,14 +80,50 @@ class DockerStatus:
         return "\n".join(lines)
 
     async def get_container_logs(
-        self, container: str, lines: Optional[int] = None
+        self,
+        container: str,
+        lines: Optional[int] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
     ) -> str:
-        """Return the last *lines* log lines for *container*."""
-        n = lines or self._max_log_lines
+        """Return logs for *container*, optionally filtered to a time window.
+
+        When *since* and/or *until* are given (ISO 8601 strings such as
+        "2026-02-21T21:00:00"), returns logs from that window instead of the
+        last N lines. A safety cap of 300 lines still applies to avoid
+        flooding Discord.
+        """
+        from datetime import datetime, timezone
+
+        kwargs: dict = {"timestamps": True}
+
+        if since or until:
+            # Time-window mode — cap lines to avoid huge output
+            kwargs["tail"] = min(lines or 300, 500)
+            if since:
+                try:
+                    dt = datetime.fromisoformat(since)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    kwargs["since"] = dt
+                except ValueError:
+                    return f"❌ Format `since` invalide : '{since}' (attendu ISO 8601, ex: '2026-02-21T21:00:00')"
+            if until:
+                try:
+                    dt = datetime.fromisoformat(until)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    kwargs["until"] = dt
+                except ValueError:
+                    return f"❌ Format `until` invalide : '{until}' (attendu ISO 8601, ex: '2026-02-21T22:00:00')"
+        else:
+            # Default mode — last N lines
+            kwargs["tail"] = lines or self._max_log_lines
+
         try:
             client = self._get_client()
             c = await self._run(client.containers.get, container)
-            raw: bytes = await self._run(c.logs, tail=n, timestamps=True)
+            raw: bytes = await self._run(c.logs, **kwargs)
             return raw.decode("utf-8", errors="replace")
         except Exception as exc:
             return f"❌ Logs de `{container}` indisponibles : {exc}"

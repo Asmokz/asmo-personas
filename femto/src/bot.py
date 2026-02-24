@@ -12,7 +12,7 @@ from asmo_commons.llm.ollama_client import OllamaClient
 from asmo_commons.tools.executor import CommandExecutor
 from asmo_commons.tools.registry import ToolDefinition, ToolRegistry
 
-from .persona import SYSTEM_PROMPT
+from .persona import get_system_prompt
 from .scheduler import FemtoScheduler
 from .tools.system_metrics import SystemMetrics
 from .tools.docker_status import DockerStatus
@@ -60,7 +60,7 @@ class FemtoBot(BaseBot):
     # ------------------------------------------------------------------
 
     def get_system_prompt(self) -> str:
-        return SYSTEM_PROMPT
+        return get_system_prompt()
 
     def get_registry(self) -> ToolRegistry:
         return self._registry
@@ -74,10 +74,17 @@ class FemtoBot(BaseBot):
 
         @reg.register(
             "get_disk_usage",
-            "Retourne l'utilisation du disque (df -h). Appelle cet outil pour toute question sur l'espace disque.",
+            "Retourne l'utilisation de tous les disques (df -h). Appelle cet outil pour toute question sur l'espace disque.",
         )
         async def get_disk_usage() -> str:
             return await self.system_metrics.get_disk_usage()
+
+        @reg.register(
+            "get_nas_usage",
+            "Retourne l'espace utilisé/disponible sur le NAS monté en /mnt/nas.",
+        )
+        async def get_nas_usage() -> str:
+            return await self.system_metrics.get_nas_usage()
 
         @reg.register(
             "get_memory_usage",
@@ -116,7 +123,10 @@ class FemtoBot(BaseBot):
 
         @reg.register(
             "get_container_logs",
-            "Retourne les dernières lignes de logs d'un conteneur Docker.",
+            "Retourne les logs d'un conteneur Docker. "
+            "Pour diagnostiquer un problème à une heure précise (ex: 'hier à 21h'), "
+            "utilise since et/ou until au format ISO 8601 en te basant sur la date actuelle. "
+            "Sans since/until, retourne les N dernières lignes.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -126,15 +136,25 @@ class FemtoBot(BaseBot):
                     },
                     "lines": {
                         "type": "integer",
-                        "description": "Nombre de lignes à retourner (défaut : 50)",
+                        "description": "Nombre de lignes max (défaut 50, ou 300 si since/until fournis)",
                         "default": 50,
+                    },
+                    "since": {
+                        "type": "string",
+                        "description": "Début de la fenêtre temporelle, format ISO 8601 (ex: '2026-02-21T21:00:00')",
+                    },
+                    "until": {
+                        "type": "string",
+                        "description": "Fin de la fenêtre temporelle, format ISO 8601 (ex: '2026-02-21T22:00:00')",
                     },
                 },
                 "required": ["container"],
             },
         )
-        async def get_container_logs(container: str, lines: int = 50) -> str:
-            return await self.docker_status.get_container_logs(container, lines)
+        async def get_container_logs(
+            container: str, lines: int = 50, since: str = None, until: str = None
+        ) -> str:
+            return await self.docker_status.get_container_logs(container, lines, since, until)
 
         @reg.register(
             "get_container_stats",
