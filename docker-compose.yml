@@ -124,7 +124,7 @@ services:
       GIORGIO_API_PORT: "${GIORGIO_API_PORT:-5555}"
       GIORGIO_NOTIFICATION_USERS: "${GIORGIO_NOTIFICATION_USERS:-asmo}"
     ports:
-      - "127.0.0.1:5555:5555"
+      - "5555:5555"
     networks:
       - default
       - giorgio_db
