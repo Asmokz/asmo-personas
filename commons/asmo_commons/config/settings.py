@@ -106,6 +106,9 @@ class GiorgioSettings(BaseAsmoSettings):
     giorgio_db_user: str = "giorgio"
     giorgio_db_password: str = ""
 
+    # SearXNG
+    giorgio_searxng_url: str = "http://searxng:8080"
+
     # Webhook API
     giorgio_api_port: int = 5555
 

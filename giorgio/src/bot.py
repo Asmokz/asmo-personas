@@ -19,6 +19,7 @@ from .persona import RATING_REACTIONS, SYSTEM_PROMPT
 from .db import service as db_service
 from .tools.jellyfin_client import JellyfinClient
 from .tools.recommendations import RecommendationEngine
+from .tools.web_search import WebSearchTool
 from .tools.stats_tools import (
     get_global_statistics,
     get_most_watched_contents,
@@ -119,7 +120,8 @@ class GiorgioBot(BaseBot):
             settings.giorgio_jellyfin_api_key,
             settings.giorgio_jellyfin_user_id,
         )
-        self.recommendations = RecommendationEngine(self.jellyfin, self.ollama)
+        self.web_search = WebSearchTool(settings.giorgio_searxng_url)
+        self.recommendations = RecommendationEngine(self.jellyfin, self.ollama, self.web_search)
         self.pubsub = RedisPubSub(settings.asmo_redis_url)
 
         self._registry = ToolRegistry()
@@ -224,6 +226,22 @@ class GiorgioBot(BaseBot):
         )
         async def _recommend(mood: str | None = None, genre: str | None = None) -> str:
             return await self.recommendations.recommend(mood, genre)
+
+        @reg.register(
+            "web_search",
+            "Recherche sur le web via SearXNG. À utiliser UNIQUEMENT si la bibliothèque Jellyfin "
+            "ne contient rien de pertinent pour la demande (films, acteurs, actualité cinéma…).",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "La requête de recherche"},
+                    "num_results": {"type": "integer", "default": 5},
+                },
+                "required": ["query"],
+            },
+        )
+        async def _web_search(query: str, num_results: int = 5) -> str:
+            return await self.web_search.search(query, num_results)
 
     # ------------------------------------------------------------------
     # Discord lifecycle
