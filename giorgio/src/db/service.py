@@ -329,6 +329,86 @@ def get_global_stats() -> dict:
         db.close()
 
 
+def get_genre_taste_profile() -> dict[str, dict]:
+    """Return per-genre taste profile aggregated from all rated content.
+
+    Iterates rated watchlogs in Python (JSON unnesting is simpler here than
+    in MariaDB). Returns a dict keyed by genre with avg_rating and count.
+    Only genres with at least 2 rated entries are included to avoid noise.
+    """
+    db = _session()
+    try:
+        rows = (
+            db.query(Content.genres, Watchlog.rating)
+            .join(Watchlog, Content.id == Watchlog.content_id)
+            .filter(Watchlog.rating.isnot(None), Content.genres.isnot(None))
+            .all()
+        )
+    finally:
+        db.close()
+
+    genre_ratings: dict[str, list[float]] = {}
+    for genres, rating in rows:
+        if not genres:
+            continue
+        for genre in genres:
+            genre_ratings.setdefault(genre, []).append(float(rating))
+
+    return {
+        genre: {
+            "avg_rating": round(sum(ratings) / len(ratings), 1),
+            "count": len(ratings),
+        }
+        for genre, ratings in genre_ratings.items()
+        if len(ratings) >= 2
+    }
+
+
+def get_top_rated_by_genre(genre: str, limit: int = 5) -> list[dict]:
+    """Return top-rated content whose genres JSON contains the requested genre.
+
+    Filtering is done in Python after a broad query to avoid complex JSON SQL.
+    """
+    db = _session()
+    try:
+        rows = (
+            db.query(
+                Content.id,
+                Content.title,
+                Content.type,
+                Content.year,
+                Content.genres,
+                func.avg(Watchlog.rating).label("avg_rating"),
+                func.count(Watchlog.rating).label("rating_count"),
+            )
+            .join(Watchlog, Content.id == Watchlog.content_id)
+            .filter(Watchlog.rating.isnot(None), Content.genres.isnot(None))
+            .group_by(Content.id, Content.title, Content.type, Content.year, Content.genres)
+            .order_by(func.avg(Watchlog.rating).desc())
+            .all()
+        )
+    finally:
+        db.close()
+
+    genre_lower = genre.lower()
+    results = []
+    for r in rows:
+        if not r.genres:
+            continue
+        if any(g.lower() == genre_lower for g in r.genres):
+            results.append({
+                "title": r.title,
+                "type": r.type,
+                "year": r.year,
+                "genres": r.genres,
+                "avg_rating": round(float(r.avg_rating), 1),
+                "rating_count": r.rating_count,
+            })
+        if len(results) >= limit:
+            break
+    return results
+
+
 def get_recent_activity(limit: int = 10) -> list[dict]:
     """Return the most recent watch events."""
     db = _session()
