@@ -109,6 +109,10 @@ class GiorgioSettings(BaseAsmoSettings):
     # SearXNG
     giorgio_searxng_url: str = "http://searxng:8080"
 
+    # Embedding model for semantic library index (RAG)
+    giorgio_embed_model: str = "nomic-embed-text"
+    giorgio_vector_db_path: str = "/data/giorgio_vectors.db"
+
     # Webhook API
     giorgio_api_port: int = 5555
 

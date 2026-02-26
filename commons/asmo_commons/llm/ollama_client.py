@@ -151,6 +151,26 @@ class OllamaClient:
         data = await self._post_chat(payload)
         return data["message"]
 
+    async def embed(self, text: str, model: str) -> list[float]:
+        """Return an embedding vector for the given text via /api/embed."""
+        session = await self._get_session()
+        try:
+            async with session.post(
+                f"{self.base_url}/api/embed",
+                json={"model": model, "input": text},
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    raise OllamaError(f"Embed HTTP {resp.status}: {body[:200]}")
+                data = await resp.json()
+            embeddings = data.get("embeddings")
+            if not embeddings or not embeddings[0]:
+                raise OllamaError("Empty embedding response from Ollama")
+            return embeddings[0]
+        except aiohttp.ClientError as exc:
+            raise OllamaError(f"Embed connection error: {exc}") from exc
+
     async def health_check(self) -> bool:
         """Return True if Ollama is reachable."""
         try:

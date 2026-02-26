@@ -85,6 +85,64 @@ class JellyfinClient:
         except Exception as exc:
             return f"❌ Recherche échouée : {exc}"
 
+    async def get_all_items_raw(self, limit: int = 2000) -> list[dict]:
+        """Return all movies and series as raw dicts (for indexing/RAG)."""
+        if not self._configured():
+            return []
+        url = f"{self._base}/Users/{self._user_id}/Items"
+        params = {
+            "IncludeItemTypes": "Movie,Series",
+            "Recursive": "true",
+            "Fields": "Genres,Overview,ProductionYear",
+            "SortBy": "DateCreated",
+            "SortOrder": "Descending",
+            "Limit": limit,
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url,
+                    headers=self._headers(),
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    data = await resp.json()
+            return data.get("Items", [])
+        except Exception as exc:
+            logger.error("jellyfin_get_all_items_error", error=str(exc))
+            return []
+
+    async def browse_items_by_genre(self, genres: list[str], limit: int = 15) -> str:
+        """Return library items matching any of the given genres."""
+        if not self._configured():
+            return "⚠️ Jellyfin non configuré"
+        if not genres:
+            return "❌ Aucun genre spécifié."
+        url = f"{self._base}/Users/{self._user_id}/Items"
+        params = {
+            "IncludeItemTypes": "Movie,Series",
+            "Recursive": "true",
+            "Fields": "Genres,Overview,ProductionYear",
+            "Genres": ",".join(genres),
+            "SortBy": "CommunityRating,DateCreated",
+            "SortOrder": "Descending",
+            "Limit": limit,
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url,
+                    headers=self._headers(),
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    data = await resp.json()
+            items = data.get("Items", [])
+            label = f"Genres : {', '.join(genres)}"
+            return _format_items(items, label)
+        except Exception as exc:
+            return f"❌ Browse par genre échoué : {exc}"
+
     async def get_libraries(self) -> str:
         """Return available media libraries."""
         if not self._configured():

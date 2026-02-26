@@ -1,6 +1,7 @@
 """GIORGIO Discord bot — media connoisseur with rating system and LLM chat."""
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
 
 import discord
@@ -18,6 +19,7 @@ from asmo_commons.tools.registry import ToolRegistry
 from .persona import RATING_REACTIONS, SYSTEM_PROMPT
 from .db import service as db_service
 from .tools.jellyfin_client import JellyfinClient
+from .tools.library_index import LibraryIndex
 from .tools.recommendations import RecommendationEngine
 from .tools.web_search import WebSearchTool
 from .tools.stats_tools import (
@@ -121,6 +123,12 @@ class GiorgioBot(BaseBot):
             settings.giorgio_jellyfin_user_id,
         )
         self.web_search = WebSearchTool(settings.giorgio_searxng_url)
+        self.library_index = LibraryIndex(
+            self.jellyfin,
+            self.ollama,
+            embed_model=settings.giorgio_embed_model,
+            db_path=settings.giorgio_vector_db_path,
+        )
         self.recommendations = RecommendationEngine(self.jellyfin, self.ollama, self.web_search)
         self.pubsub = RedisPubSub(settings.asmo_redis_url)
 
@@ -243,18 +251,71 @@ class GiorgioBot(BaseBot):
         async def _web_search(query: str, num_results: int = 5) -> str:
             return await self.web_search.search(query, num_results)
 
+        @reg.register(
+            "browse_library_by_genre",
+            "Parcourt la bibliothèque Jellyfin et retourne les contenus correspondant "
+            "aux genres demandés. À utiliser quand l'utilisateur décrit une humeur, "
+            "une ambiance ou un genre — mappe d'abord sa demande en genres Jellyfin "
+            "(Action, Comedy, Drama, Thriller, Sci-Fi, Romance, Animation, Horror…) "
+            "puis appelle cet outil.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "genres": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Liste de genres Jellyfin (ex: [\"Comedy\", \"Family\"])",
+                    },
+                    "limit": {"type": "integer", "default": 12},
+                },
+                "required": ["genres"],
+            },
+        )
+        async def _browse_by_genre(genres: list[str], limit: int = 12) -> str:
+            return await self.jellyfin.browse_items_by_genre(genres, limit)
+
+        @reg.register(
+            "semantic_search_library",
+            "Recherche sémantique dans la bibliothèque Jellyfin par similarité de contenu. "
+            "Utilise des embeddings pour trouver des contenus proches d'une description libre "
+            "(humeur, thème, ambiance, description d'une intrigue…). "
+            "Préférer cet outil à search_media pour les requêtes vagues ou descriptives.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Description libre (ex: 'film feel-good pour après-midi ensoleillée')",
+                    },
+                    "limit": {"type": "integer", "default": 6},
+                },
+                "required": ["query"],
+            },
+        )
+        async def _semantic_search(query: str, limit: int = 6) -> str:
+            return await self.library_index.semantic_search(query, limit)
+
     # ------------------------------------------------------------------
     # Discord lifecycle
     # ------------------------------------------------------------------
 
     async def setup_hook(self) -> None:
         self._register_prefix_commands()
+        await self.library_index.init()
+        asyncio.create_task(self._sync_library_index())
         try:
             await self.pubsub.connect()
             logger.info("giorgio_pubsub_connected")
         except Exception as exc:
             logger.warning("giorgio_pubsub_unavailable", error=str(exc))
         await super().setup_hook()
+
+    async def _sync_library_index(self) -> None:
+        """Background task: sync Jellyfin library into the vector index."""
+        try:
+            await self.library_index.sync()
+        except Exception as exc:
+            logger.warning("library_index_sync_failed", error=str(exc))
 
     async def on_ready(self) -> None:
         await super().on_ready()
