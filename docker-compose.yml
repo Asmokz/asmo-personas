@@ -62,6 +62,9 @@ services:
       FEMTO_METRICS_FILE: "/data/metrics.json"
       FEMTO_CMD_TIMEOUT: "${FEMTO_CMD_TIMEOUT:-10}"
       FEMTO_NAS_DEVICE: "${FEMTO_NAS_DEVICE:-/dev/sda}"
+      FEMTO_NAS_SMART_TYPE: "${FEMTO_NAS_SMART_TYPE:-sat}"
+    cap_add:
+      - SYS_RAWIO           # required for smartctl raw disk access
     devices:
       - /dev/sda:/dev/sda   # SMART monitoring access
     volumes:

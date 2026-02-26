@@ -50,6 +50,7 @@ class FemtoSettings(BaseAsmoSettings):
 
     # NAS disk for SMART monitoring
     femto_nas_device: str = "/dev/sda"
+    femto_nas_smart_type: str = "sat"  # -d flag for smartctl (sat, ata, auto…)
 
     # Persistence
     femto_metrics_file: str = "/data/metrics.json"

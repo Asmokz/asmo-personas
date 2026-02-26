@@ -49,7 +49,7 @@ class FemtoBot(BaseBot):
         )
         self.network_monitor = NetworkMonitor(self._executor)
         self.log_analyzer = LogAnalyzer(self._executor, self.ollama)
-        self.disk_health = DiskHealth(self._executor, settings.femto_nas_device)
+        self.disk_health = DiskHealth(self._executor, settings.femto_nas_device, settings.femto_nas_smart_type)
 
         # Build registry
         self._registry = ToolRegistry()
