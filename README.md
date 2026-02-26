@@ -22,7 +22,7 @@ asmo-personas/
 └── .env.example
 ```
 
-**Stack** : Python 3.11 · discord.py · Ollama · Redis · Docker Compose · aiosqlite · yfinance · FastAPI
+**Stack** : Python 3.11 · discord.py · Ollama · Redis · Docker Compose · aiosqlite · SQLAlchemy · yfinance · FastAPI · numpy
 
 ### Flux inter-personas (Redis pub/sub)
 
@@ -38,8 +38,9 @@ GIORGIO ──► asmo.media.rated  ──► ALITA (bufferisé pour le briefing
 - Docker + Docker Compose v2
 - Ollama installé sur l'hôte :
   ```bash
-  ollama pull mistral:7b        # FEMTO + GIORGIO
+  ollama pull ministral-3:14b   # FEMTO + GIORGIO
   ollama pull mistral-nemo      # ALITA (recommandé pour la qualité)
+  ollama pull nomic-embed-text  # GIORGIO — index sémantique de la bibliothèque (RAG)
   ```
 - Trois applications Discord créées sur <https://discord.com/developers/applications>
   (un token par bot)
@@ -130,6 +131,10 @@ Il publie également une alerte sur Redis (`asmo.alerts.system`) quand un disque
 
 GIORGIO gère les notifications de fin de visionnage Jellyfin, les notations et les recommandations culturelles. Il partage la base MariaDB de l'ancien conteneur `giorgio-bot`.
 
+### Canal dédié
+
+GIORGIO répond à **tous les messages** sur `GIORGIO_RECOMMENDATION_CHANNEL_ID` sans nécessiter de mention. Sur les autres canaux, il faut le taguer.
+
 ### Notifications automatiques (webhook Jellyfin)
 
 Quand un utilisateur configuré (`GIORGIO_NOTIFICATION_USERS`) termine un film ou un épisode, Giorgio poste automatiquement un message de notation dans le canal `GIORGIO_CHANNEL_ID` :
@@ -146,14 +151,14 @@ Giorgio réagit différemment selon chaque note (de *"Madonna! quelle horreur"* 
 
 Configurer Jellyfin pour envoyer les webhooks vers : `http://<asmo-01>:5555/api/webhook`
 
-### Messages naturels (mentionner le bot)
+### Messages naturels
 
 ```
-@GIORGIO quels sont mes films les mieux notés ?
-@GIORGIO suggère-moi quelque chose pour une soirée détente
-@GIORGIO qu'est-ce que j'ai regardé récemment ?
-@GIORGIO combien de films dans la bibliothèque ?
-@GIORGIO cherche Blade Runner dans Jellyfin
+quels sont mes films les mieux notés ?
+suggère-moi quelque chose pour une après-midi ensoleillée
+qu'est-ce que j'ai regardé récemment ?
+combien de films dans la bibliothèque ?
+c'est quoi la série Les Sentinelles ?
 ```
 
 ### Commandes préfixées
@@ -164,6 +169,27 @@ Configurer Jellyfin pour envoyer les webhooks vers : `http://<asmo-01>:5555/api/
 | `!toprated [n]` | Top *n* contenus les mieux notés (défaut : 10) |
 | `!mostwatched [n]` | Top *n* films/séries les plus vus, épisodes agrégés par série |
 | `!recent [n]` | *n* derniers visionnages avec notes (défaut : 10) |
+
+### Outils LLM disponibles
+
+| Outil | Description |
+|-------|-------------|
+| `get_top_rated` | Top des contenus les mieux notés |
+| `get_most_watched` | Films/séries les plus vus |
+| `get_recent_watches` | Activité de visionnage récente |
+| `get_global_stats` | Statistiques globales du catalogue |
+| `get_recent_media` | Ajouts récents dans Jellyfin |
+| `search_media` | Recherche par titre exact dans Jellyfin |
+| `browse_library_by_genre` | Parcourt la bibliothèque par genre(s) — résultats réels, pas d'hallucination |
+| `semantic_search_library` | Recherche sémantique par description libre (humeur, thème, ambiance) via RAG |
+| `get_recommendation` | Recommandation personnalisée enrichie par le profil de goût (genres aimés/détestés) |
+| `web_search` | Recherche web SearXNG — dernier recours si rien dans Jellyfin |
+
+### Index sémantique (RAG)
+
+Au démarrage, Giorgio indexe automatiquement toute la bibliothèque Jellyfin dans un index vectoriel SQLite (`/data/giorgio_vectors.db`) via `nomic-embed-text`. Le sync est incrémental : seuls les nouveaux contenus sont ré-embedés.
+
+La recherche sémantique permet des requêtes comme *"film feel-good pour après-midi ensoleillée"* ou *"thriller psychologique oppressant"* sans nécessiter de titre exact.
 
 ### API stats (HTTP)
 
@@ -202,6 +228,7 @@ Pour forcer un briefing immédiat : `!briefing`
 ```
 c'est bon pour la moto aujourd'hui ?
 comment se porte mon portfolio ?
+je viens de vendre 1 action AI.PA à 179.48€
 éteins les lumières du salon
 mets de la musique
 cherche les dernières news sur l'IA
@@ -227,8 +254,9 @@ ALITA utilise ses outils automatiquement selon le contexte — pas besoin de for
 | `get_current_weather` | Météo actuelle (OpenWeatherMap) |
 | `get_weather_forecast` | Prévisions 1–5 jours |
 | `should_i_ride` | Score moto 0–10 basé sur les conditions 8h–19h |
-| `get_portfolio_summary` | P&L complet du portefeuille (`ALITA_PORTFOLIO`) |
+| `get_portfolio_summary` | P&L complet du portefeuille (depuis la DB SQLite) |
 | `get_stock_quote` | Cours d'une action individuelle |
+| `update_portfolio_position` | Achat / vente / correction manuelle d'une position (persisté en DB) |
 | `get_ha_states` | Liste les entités Home Assistant (filtrable par domaine) |
 | `get_ha_entity` | État détaillé d'une entité HA |
 | `call_ha_service` | Appelle un service HA (turn_on, turn_off, toggle, scene…) |
@@ -246,13 +274,17 @@ ALITA utilise ses outils automatiquement selon le contexte — pas besoin de for
 | `get_reminders` | Liste les rappels en attente |
 | `complete_reminder` | Marque un rappel comme terminé |
 
-### Configurer le portefeuille boursier
+### Portefeuille boursier
 
-Dans `.env`, renseigner `ALITA_PORTFOLIO` au format JSON :
+Le portefeuille est stocké en base SQLite (`/data/alita.db`), pas dans une variable d'environnement. ALITA gère les achats et ventes en temps réel via l'outil `update_portfolio_position` :
 
-```env
-ALITA_PORTFOLIO=[{"symbol":"AAPL","shares":10,"avg_price":150.0},{"symbol":"MC.PA","shares":2,"avg_price":700.0}]
 ```
+je viens d'acheter 5 actions AAPL à 185€
+j'ai vendu 1 action AI.PA à 179.48€, il m'en reste 2
+corrige ma position AIR.PA : 3 actions à 186€ de PRU
+```
+
+**Migration** : si `ALITA_PORTFOLIO` est défini dans `.env`, les positions sont importées automatiquement dans la DB au premier démarrage (opération unique).
 
 Fonctionne avec tous les tickers Yahoo Finance (actions US, françaises `.PA`, ETFs…).
 
@@ -288,13 +320,9 @@ Le token est renouvelé automatiquement à chaque démarrage.
 
 ALITA maintient une base SQLite (`/data/alita.db`) avec :
 - **Préférences** : clé/valeur persistantes entre les sessions, injectées dans le system prompt
+- **Portefeuille boursier** : positions avec quantités et PRU
 - **Historique** des conversations (7 jours glissants, purgé automatiquement au démarrage)
 - **Rappels** : avec date d'échéance optionnelle
-
-```
-@ALITA souviens-toi que je préfère les résumés courts
-@ALITA rappelle-moi d'appeler le médecin jeudi
-```
 
 ---
 
@@ -323,13 +351,16 @@ pid: host
 
 ```bash
 # .env — modèle partagé (FEMTO + GIORGIO)
-ASMO_OLLAMA_MODEL=llama3.1:8b
+ASMO_OLLAMA_MODEL=ministral-3:14b
 
 # Modèle spécifique à ALITA (override)
 ALITA_OLLAMA_MODEL=mistral-nemo
+
+# Modèle d'embedding GIORGIO (RAG bibliothèque)
+GIORGIO_EMBED_MODEL=nomic-embed-text
 ```
 
-Modèles recommandés avec tool calling : `mistral:7b`, `mistral-nemo`, `llama3.1:8b`, `qwen2.5:7b`
+Modèles recommandés avec tool calling : `ministral-3:14b`, `mistral-nemo`, `llama3.1:8b`, `qwen2.5:7b`
 
 ---
 
@@ -387,7 +418,7 @@ async def nom_de_loutil(param1: str) -> str:
 - **Read-only** : FEMTO ne modifie pas l'état du système.
 - **Socket Docker en RO** : monté en `:ro` — impossible d'écrire dans le socket.
 - **Whitelist HA** : `call_ha_service` est limité à 7 domaines autorisés explicitement.
-- **Secrets en env vars** : aucun secret en dur dans le code, tokens Spotify en SQLite chiffrée.
+- **Secrets en env vars** : aucun secret en dur dans le code, tokens Spotify en SQLite.
 - **Pub/sub non-bloquant** : Redis indisponible → dégradation gracieuse, le bot continue de fonctionner.
 - **Timeout sur chaque commande** : configurable via `FEMTO_CMD_TIMEOUT`.
 
@@ -401,11 +432,14 @@ async def nom_de_loutil(param1: str) -> str:
 | `OllamaError: Connection failed` | Ollama non démarré | `systemctl start ollama` sur l'hôte |
 | `redis.exceptions.ConnectionError` | Redis non démarré | `docker compose up -d redis` |
 | ALITA ne répond pas sur le canal | `ALITA_DISCORD_CHANNEL_ID` manquant | Renseigner l'ID du canal dédié dans `.env` |
+| GIORGIO ne répond pas sur le canal | `GIORGIO_RECOMMENDATION_CHANNEL_ID` manquant | Renseigner l'ID dans `.env` |
 | Score moto toujours indisponible | Clé API météo absente | Vérifier `ALITA_WEATHER_API_KEY` |
 | Spotify : "non connecté" | Auth OAuth non effectuée | Faire `!spotify-auth` et suivre le lien |
-| Portfolio vide | JSON mal formé | Vérifier le format de `ALITA_PORTFOLIO` dans `.env` |
+| Portfolio ALITA vide | Première utilisation | Parler directement à ALITA pour déclarer les positions, ou renseigner `ALITA_PORTFOLIO` en JSON pour la migration initiale |
 | HA non disponible | Token HA absent ou URL incorrecte | Vérifier `ALITA_HA_TOKEN` et `ALITA_HA_URL` |
 | `ExecutorError: Command 'X' is not in the whitelist` | Commande non autorisée | Ajouter à `ALLOWED_COMMANDS` dans `executor.py` si légitime |
+| Index sémantique GIORGIO vide | `nomic-embed-text` non installé | `ollama pull nomic-embed-text` puis `docker compose restart giorgio` |
+| `library_index_sync_done embedded=0` | Modèle d'embedding absent | Même solution que ci-dessus |
 
 ---
 
@@ -415,15 +449,19 @@ async def nom_de_loutil(param1: str) -> str:
 - [x] FEMTO → ALITA : alertes Redis sur disque critique
 - [x] GIORGIO : système de notation avec boutons Discord
 - [x] GIORGIO → ALITA : publication des notations via Redis
+- [x] GIORGIO : canal dédié sans mention (`GIORGIO_RECOMMENDATION_CHANNEL_ID`)
+- [x] GIORGIO : recherche web SearXNG (fallback si rien dans Jellyfin)
+- [x] GIORGIO : profil de goût par genre pour les recommandations
+- [x] GIORGIO : index sémantique RAG (nomic-embed-text + SQLite, sync au démarrage)
+- [x] GIORGIO : browse par genre Jellyfin (résultats réels, anti-hallucination)
 - [x] ALITA : briefing matinal complet (météo, moto, bourse, HA, rappels, alertes)
 - [x] ALITA : score moto intelligent (analyse 8h–19h, pluie rédhibitoire)
 - [x] ALITA : intégration Home Assistant (états + contrôle)
-- [x] ALITA : portefeuille boursier yfinance
+- [x] ALITA : portefeuille boursier persistant en SQLite (buy/sell/set via LLM)
 - [x] ALITA : recherche web SearXNG
 - [x] ALITA : contrôle Spotify avec OAuth2
 - [x] ALITA : mémoire persistante SQLite (préférences + rappels)
 - [ ] ALITA : intégration Google Calendar / Nextcloud CalDAV
 - [ ] ALITA : résumé d'actualités via flux RSS
-- [ ] GIORGIO : sync périodique du catalogue Jellyfin (`GIORGIO_SYNC_INTERVAL_HOURS`)
-- [ ] GIORGIO : canal séparé pour les recommandations (`GIORGIO_RECOMMENDATION_CHANNEL_ID`)
+- [ ] GIORGIO : sync périodique de l'index sémantique (`GIORGIO_SYNC_INTERVAL_HOURS`)
 - [ ] Dashboard web pour les métriques FEMTO (Prometheus + Grafana)
