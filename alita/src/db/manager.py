@@ -183,3 +183,50 @@ class AlitaDbManager:
             async with db.execute("SELECT COUNT(*) FROM portfolio") as cur:
                 row = await cur.fetchone()
         return row[0] == 0  # type: ignore[index]
+
+    # ------------------------------------------------------------------
+    # Long-term memory vectors
+    # ------------------------------------------------------------------
+
+    async def save_conversation_vector(
+        self,
+        user_msg: str,
+        assistant_msg: str,
+        embedding: list[float],
+        channel_id: Optional[str] = None,
+    ) -> None:
+        import json
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO conversation_vectors "
+                "(user_msg, assistant_msg, embedding, channel_id) VALUES (?, ?, ?, ?)",
+                (user_msg, assistant_msg, json.dumps(embedding), channel_id),
+            )
+            await db.commit()
+
+    async def get_all_conversation_vectors(self, limit: int = 500) -> list[dict]:
+        import json
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT id, user_msg, assistant_msg, embedding, channel_id, created_at "
+                "FROM conversation_vectors ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ) as cur:
+                rows = await cur.fetchall()
+        return [
+            {
+                "id": r[0],
+                "user_msg": r[1],
+                "assistant_msg": r[2],
+                "embedding": json.loads(r[3]),
+                "channel_id": r[4],
+                "created_at": r[5],
+            }
+            for r in rows
+        ]
+
+    async def count_conversation_vectors(self) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM conversation_vectors") as cur:
+                row = await cur.fetchone()
+        return row[0] if row else 0  # type: ignore[index]

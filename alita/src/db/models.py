@@ -32,6 +32,16 @@ CREATE TABLE IF NOT EXISTS portfolio (
     updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS conversation_vectors (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_msg        TEXT NOT NULL,
+    assistant_msg   TEXT NOT NULL,
+    embedding       TEXT NOT NULL,
+    channel_id      TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_conv_ts      ON conversation_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_conv_channel ON conversation_history(channel_id);
+CREATE INDEX IF NOT EXISTS idx_vec_created  ON conversation_vectors(created_at);
 """

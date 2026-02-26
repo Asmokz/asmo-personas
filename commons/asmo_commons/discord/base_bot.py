@@ -68,6 +68,24 @@ class BaseBot(commands.Bot, ABC):
         """Return the ToolRegistry with all tools available to this bot."""
 
     # ------------------------------------------------------------------
+    # Optional hooks — override in subclasses to extend behaviour
+    # ------------------------------------------------------------------
+
+    async def _get_context_prefix(self, message: discord.Message) -> str:
+        """Return extra context to prepend to the user message (e.g. RAG memories).
+
+        Default: returns empty string (no extra context).
+        """
+        return ""
+
+    async def _on_final_response(self, message: discord.Message, reply: str) -> None:
+        """Called once the bot has sent its final text reply.
+
+        Override to persist the exchange (e.g. long-term memory embeddings).
+        Default: no-op.
+        """
+
+    # ------------------------------------------------------------------
     # Discord lifecycle hooks
     # ------------------------------------------------------------------
 
@@ -120,6 +138,12 @@ class BaseBot(commands.Bot, ABC):
 
         # Strip bot mention from message content
         content = message.clean_content.strip()
+
+        # Inject long-term memory context if available
+        context_prefix = await self._get_context_prefix(message)
+        if context_prefix:
+            content = f"{context_prefix}\n{content}"
+
         history.append({"role": "user", "content": content})
 
         # Bind a conversation ID to all log lines for this request
@@ -180,6 +204,7 @@ class BaseBot(commands.Bot, ABC):
                     if reply_text:
                         history.append({"role": "assistant", "content": reply_text})
                         await send_long_message(message.channel, reply_text)
+                        await self._on_final_response(message, reply_text)
                     else:
                         logger.warning("empty_llm_response", turn=iteration + 1)
                         await message.channel.send("_(aucune réponse du LLM)_")

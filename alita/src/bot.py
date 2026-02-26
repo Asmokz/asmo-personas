@@ -1,6 +1,7 @@
 """ALITA Discord bot — personal assistant."""
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Optional
 
@@ -18,6 +19,7 @@ from .persona import build_system_prompt
 from .pubsub.subscriber import AlitaSubscriber
 from .scheduler import AlitaScheduler
 from .tools.home_assistant import HomeAssistantTool
+from .tools.long_term_memory import LongTermMemory
 from .tools.memory import MemoryTool
 from .tools.spotify import SpotifyTool
 from .tools.stocks import StocksTool
@@ -59,6 +61,7 @@ class AlitaBot(BaseBot):
             self.db,
         )
         self.memory = MemoryTool(self.db)
+        self.ltm = LongTermMemory(self.db, self.ollama, settings.alita_embed_model)
 
         # Registry + scheduler + pubsub
         self._registry = ToolRegistry()
@@ -108,6 +111,23 @@ class AlitaBot(BaseBot):
         if channel_id and message.channel.id == channel_id:
             return True
         return False
+
+    # ------------------------------------------------------------------
+    # Long-term memory hooks
+    # ------------------------------------------------------------------
+
+    async def _get_context_prefix(self, message: discord.Message) -> str:
+        return await self.ltm.search_relevant(message.clean_content)
+
+    async def _on_final_response(self, message: discord.Message, reply: str) -> None:
+        # Fire-and-forget — embedding is slow; don't block the response
+        asyncio.create_task(
+            self.ltm.embed_exchange(
+                user_msg=message.clean_content,
+                assistant_msg=reply,
+                channel_id=str(message.channel.id),
+            )
+        )
 
     # ------------------------------------------------------------------
     # Tool registration

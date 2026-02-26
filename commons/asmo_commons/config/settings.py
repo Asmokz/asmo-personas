@@ -84,6 +84,9 @@ class AlitaSettings(BaseAsmoSettings):
     # Database
     alita_db_path: str = "/data/alita.db"
 
+    # Long-term memory (RAG)
+    alita_embed_model: str = "nomic-embed-text"
+
 
 class GiorgioSettings(BaseAsmoSettings):
     """Settings for the GIORGIO media bot."""

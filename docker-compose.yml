@@ -114,6 +114,8 @@ services:
       ALITA_SEARXNG_URL: "${ALITA_SEARXNG_URL:-http://searxng:8080}"
       # Database
       ALITA_DB_PATH: "/data/alita.db"
+      # Long-term memory (RAG)
+      ALITA_EMBED_MODEL: "${ALITA_EMBED_MODEL:-nomic-embed-text}"
     volumes:
       - alita_data:/data
     ports:
