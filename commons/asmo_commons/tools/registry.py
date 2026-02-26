@@ -1,6 +1,7 @@
 """Tool registry — manages LLM-callable tools for a bot."""
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -105,13 +106,23 @@ class ToolRegistry:
             logger.warning("tool_not_found", name=name)
             return f"[Error] Tool '{name}' is not registered."
 
+        t0 = time.monotonic()
         try:
             result = await tool.handler(**arguments)
-            logger.info("tool_executed", name=name, success=True)
+            elapsed_ms = round((time.monotonic() - t0) * 1000)
+            logger.info(
+                "tool_done",
+                name=name,
+                elapsed_ms=elapsed_ms,
+                result_len=len(str(result)),
+                success=True,
+            )
             return str(result)
         except TypeError as exc:
-            logger.error("tool_bad_args", name=name, error=str(exc))
+            elapsed_ms = round((time.monotonic() - t0) * 1000)
+            logger.error("tool_done", name=name, elapsed_ms=elapsed_ms, success=False, error=str(exc))
             return f"[Error] Bad arguments for tool '{name}': {exc}"
         except Exception as exc:
-            logger.error("tool_execution_failed", name=name, error=str(exc))
+            elapsed_ms = round((time.monotonic() - t0) * 1000)
+            logger.error("tool_done", name=name, elapsed_ms=elapsed_ms, success=False, error=str(exc))
             return f"[Error] Tool '{name}' failed: {exc}"

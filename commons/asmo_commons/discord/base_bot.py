@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from abc import ABC, abstractmethod
 from collections import deque
 from typing import Optional
@@ -121,99 +122,125 @@ class BaseBot(commands.Bot, ABC):
         content = message.clean_content.strip()
         history.append({"role": "user", "content": content})
 
+        # Bind a conversation ID to all log lines for this request
+        conv_id = f"{channel_id}:{message.id}"
+        structlog.contextvars.bind_contextvars(conv_id=conv_id)
+        t0 = time.monotonic()
+        total_tool_calls = 0
+
         logger.info(
             "llm_request",
-            channel=channel_id,
             user=str(message.author),
+            channel=channel_id,
             history_len=len(history),
         )
 
-        for iteration in range(MAX_TOOL_ITERATIONS):
-            try:
-                response_msg = await self.ollama.chat_with_tools(
-                    messages=list(history),
-                    tools=tools,
-                    system_prompt=system_prompt,
+        try:
+            for iteration in range(MAX_TOOL_ITERATIONS):
+                turn_t0 = time.monotonic()
+                try:
+                    response_msg = await self.ollama.chat_with_tools(
+                        messages=list(history),
+                        tools=tools,
+                        system_prompt=system_prompt,
+                    )
+                except Exception as exc:
+                    logger.error("ollama_error", error=str(exc))
+                    await message.channel.send(
+                        f"⚠️ Erreur de communication avec le LLM : `{exc}`"
+                    )
+                    return
+                llm_ms = round((time.monotonic() - turn_t0) * 1000)
+
+                tool_calls = response_msg.get("tool_calls")
+
+                # Fallback: some Ollama models output a JSON tool-call in
+                # `content` instead of the structured `tool_calls` field.
+                if not tool_calls:
+                    tool_calls = _extract_tool_calls_from_content(
+                        response_msg.get("content") or ""
+                    )
+                    if tool_calls:
+                        response_msg["content"] = ""
+
+                tool_names = (
+                    [tc.get("function", {}).get("name") for tc in tool_calls]
+                    if tool_calls else []
                 )
-            except Exception as exc:
-                logger.error("ollama_error", error=str(exc))
-                await message.channel.send(
-                    f"⚠️ Erreur de communication avec le LLM : `{exc}`"
+                logger.info(
+                    "llm_turn",
+                    turn=iteration + 1,
+                    tools=tool_names,
+                    llm_ms=llm_ms,
                 )
-                return
 
-            tool_calls = response_msg.get("tool_calls")
+                # No tool calls → final text response
+                if not tool_calls:
+                    reply_text = response_msg.get("content", "").strip()
+                    if reply_text:
+                        history.append({"role": "assistant", "content": reply_text})
+                        await send_long_message(message.channel, reply_text)
+                    else:
+                        logger.warning("empty_llm_response", turn=iteration + 1)
+                        await message.channel.send("_(aucune réponse du LLM)_")
+                    logger.info(
+                        "llm_done",
+                        total_ms=round((time.monotonic() - t0) * 1000),
+                        turns=iteration + 1,
+                        tool_calls=total_tool_calls,
+                        reply_len=len(reply_text) if reply_text else 0,
+                    )
+                    return
 
-            # Fallback: some Ollama models (e.g. qwen2.5-coder) output a JSON
-            # tool-call in `content` instead of the structured `tool_calls` field.
-            # We detect and normalise that pattern so the loop still works.
-            if not tool_calls:
-                tool_calls = _extract_tool_calls_from_content(
-                    response_msg.get("content") or ""
-                )
-                if tool_calls:
-                    response_msg["content"] = ""  # consumed by the parser
-                    logger.info("tool_call_from_content", names=[tc.get("function", {}).get("name") for tc in tool_calls])
-
-            logger.debug(
-                "llm_response",
-                iteration=iteration,
-                has_tool_calls=bool(tool_calls),
-                tool_names=[tc.get("function", {}).get("name") for tc in tool_calls]
-                if tool_calls
-                else [],
-                content_len=len(response_msg.get("content") or ""),
-            )
-
-            # No tool calls → final text response
-            if not tool_calls:
-                reply_text = response_msg.get("content", "").strip()
-                if reply_text:
-                    history.append({"role": "assistant", "content": reply_text})
-                    await send_long_message(message.channel, reply_text)
-                else:
-                    logger.warning("empty_llm_response", iteration=iteration)
-                    await message.channel.send("_(aucune réponse du LLM)_")
-                return
-
-            # Execute tool calls
-            history.append(
-                {
-                    "role": "assistant",
-                    "content": response_msg.get("content", ""),
-                    "tool_calls": tool_calls,
-                }
-            )
-
-            for tc in tool_calls:
-                fn_name = tc.get("function", {}).get("name", "unknown")
-                fn_args = parse_tool_arguments(tc)
-                tc_id = tc.get("id", f"call_{iteration}_{fn_name}")
-
-                logger.info("tool_call", name=fn_name, args=fn_args)
-                result = await registry.execute(fn_name, fn_args)
-
+                # Execute tool calls
                 history.append(
                     {
-                        "role": "tool",
-                        "content": result,
-                        "tool_call_id": tc_id,
+                        "role": "assistant",
+                        "content": response_msg.get("content", ""),
+                        "tool_calls": tool_calls,
                     }
                 )
 
-        # Safety: if we exhausted iterations, ask LLM for a final answer
-        logger.warning("max_tool_iterations_reached", channel=channel_id)
-        try:
-            final = await self.ollama.chat(
-                messages=list(history),
-                system_prompt=system_prompt,
+                for tc in tool_calls:
+                    fn_name = tc.get("function", {}).get("name", "unknown")
+                    fn_args = parse_tool_arguments(tc)
+                    tc_id = tc.get("id", f"call_{iteration}_{fn_name}")
+                    total_tool_calls += 1
+
+                    logger.info(
+                        "tool_call",
+                        name=fn_name,
+                        args_keys=list(fn_args.keys()),
+                    )
+                    result = await registry.execute(fn_name, fn_args)
+
+                    history.append(
+                        {
+                            "role": "tool",
+                            "content": result,
+                            "tool_call_id": tc_id,
+                        }
+                    )
+
+            # Safety: exhausted max iterations → ask LLM for a final answer
+            logger.warning(
+                "max_tool_iterations_reached",
+                channel=channel_id,
+                tool_calls=total_tool_calls,
             )
-            await send_long_message(message.channel, final)
-            history.append({"role": "assistant", "content": final})
-        except Exception as exc:
-            await message.channel.send(
-                f"⚠️ Trop d'appels d'outils imbriqués : `{exc}`"
-            )
+            try:
+                final = await self.ollama.chat(
+                    messages=list(history),
+                    system_prompt=system_prompt,
+                )
+                await send_long_message(message.channel, final)
+                history.append({"role": "assistant", "content": final})
+            except Exception as exc:
+                await message.channel.send(
+                    f"⚠️ Trop d'appels d'outils imbriqués : `{exc}`"
+                )
+        finally:
+            structlog.contextvars.clear_contextvars()
 
     # ------------------------------------------------------------------
     # History management
