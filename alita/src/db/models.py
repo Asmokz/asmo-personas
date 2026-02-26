@@ -24,6 +24,14 @@ CREATE TABLE IF NOT EXISTS reminders (
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS portfolio (
+    symbol      TEXT PRIMARY KEY,
+    shares      REAL NOT NULL CHECK (shares > 0),
+    avg_price   REAL NOT NULL CHECK (avg_price >= 0),
+    label       TEXT,
+    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_conv_ts      ON conversation_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_conv_channel ON conversation_history(channel_id);
 """

@@ -127,3 +127,59 @@ class AlitaDbManager:
             )
             await db.commit()
             return result.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Portfolio
+    # ------------------------------------------------------------------
+
+    async def get_portfolio(self) -> list[dict]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT symbol, shares, avg_price, label FROM portfolio ORDER BY symbol"
+            ) as cur:
+                rows = await cur.fetchall()
+        return [
+            {"symbol": r[0], "shares": r[1], "avg_price": r[2], "label": r[3]}
+            for r in rows
+        ]
+
+    async def get_position(self, symbol: str) -> Optional[dict]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT symbol, shares, avg_price, label FROM portfolio WHERE symbol = ?",
+                (symbol.upper(),),
+            ) as cur:
+                row = await cur.fetchone()
+        if row:
+            return {"symbol": row[0], "shares": row[1], "avg_price": row[2], "label": row[3]}
+        return None
+
+    async def upsert_position(
+        self, symbol: str, shares: float, avg_price: float, label: Optional[str] = None
+    ) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO portfolio (symbol, shares, avg_price, label, updated_at) "
+                "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) "
+                "ON CONFLICT(symbol) DO UPDATE SET "
+                "  shares = excluded.shares, "
+                "  avg_price = excluded.avg_price, "
+                "  label = COALESCE(excluded.label, label), "
+                "  updated_at = CURRENT_TIMESTAMP",
+                (symbol.upper(), shares, avg_price, label),
+            )
+            await db.commit()
+
+    async def delete_position(self, symbol: str) -> bool:
+        async with aiosqlite.connect(self._db_path) as db:
+            result = await db.execute(
+                "DELETE FROM portfolio WHERE symbol = ?", (symbol.upper(),)
+            )
+            await db.commit()
+            return result.rowcount > 0
+
+    async def portfolio_is_empty(self) -> bool:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM portfolio") as cur:
+                row = await cur.fetchone()
+        return row[0] == 0  # type: ignore[index]

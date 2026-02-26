@@ -1,6 +1,7 @@
 """ALITA Discord bot — personal assistant."""
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 import discord
@@ -48,7 +49,7 @@ class AlitaBot(BaseBot):
 
         # Tools
         self.weather = WeatherTool(settings.alita_weather_api_key, settings.alita_weather_city)
-        self.stocks = StocksTool(settings.alita_portfolio)
+        self.stocks = StocksTool(self.db)
         self.ha = HomeAssistantTool(settings.alita_ha_url, settings.alita_ha_token)
         self.web_search = WebSearchTool(settings.alita_searxng_url)
         self.spotify = SpotifyTool(
@@ -181,6 +182,98 @@ class AlitaBot(BaseBot):
         )
         async def get_stock_quote(symbol: str) -> str:
             return await self.stocks.get_stock_quote(symbol)
+
+        @reg.register(
+            "update_portfolio_position",
+            "Met à jour une position dans le portefeuille boursier persistant. "
+            "Utilise action='buy' pour un achat (recalcule le PRU), 'sell' pour une vente (réduit les parts, "
+            "supprime la ligne si tout est vendu), 'set' pour forcer les valeurs (corrections manuelles). "
+            "Appelle TOUJOURS cet outil quand Asmo annonce un achat ou une vente d'actions.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": "Ticker boursier exact (ex: AI.PA pour Air Liquide, AIR.PA pour Airbus)",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["buy", "sell", "set"],
+                        "description": "buy=achat, sell=vente, set=correction manuelle",
+                    },
+                    "shares": {
+                        "type": "number",
+                        "description": "Nombre d'actions concernées",
+                    },
+                    "price": {
+                        "type": "number",
+                        "description": "Prix unitaire en euros",
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": "Nom lisible de l'action (ex: 'Air Liquide'). Optionnel si déjà connu.",
+                    },
+                },
+                "required": ["symbol", "action", "shares", "price"],
+            },
+        )
+        async def update_portfolio_position(
+            symbol: str,
+            action: str,
+            shares: float,
+            price: float,
+            label: Optional[str] = None,
+        ) -> str:
+            symbol = symbol.upper()
+            existing = await self.db.get_position(symbol)
+
+            if action == "set":
+                await self.db.upsert_position(symbol, shares, price, label)
+                lbl = label or (existing and existing["label"]) or symbol
+                return (
+                    f"✅ Position {symbol} ({lbl}) forcée : {shares:.0f} actions à {price:.2f}€ de PRU."
+                )
+
+            elif action == "buy":
+                if existing:
+                    total_shares = existing["shares"] + shares
+                    new_avg = (existing["shares"] * existing["avg_price"] + shares * price) / total_shares
+                    await self.db.upsert_position(symbol, total_shares, new_avg, label)
+                    lbl = label or existing["label"] or symbol
+                    return (
+                        f"✅ Achat enregistré — {symbol} ({lbl}) : +{shares:.0f} actions à {price:.2f}€. "
+                        f"Total : {total_shares:.0f} actions | Nouveau PRU : {new_avg:.2f}€."
+                    )
+                else:
+                    await self.db.upsert_position(symbol, shares, price, label)
+                    lbl = label or symbol
+                    return (
+                        f"✅ Nouvelle position — {symbol} ({lbl}) : {shares:.0f} actions à {price:.2f}€."
+                    )
+
+            elif action == "sell":
+                if not existing:
+                    return f"❌ Position {symbol} introuvable dans le portefeuille."
+                if shares > existing["shares"]:
+                    return (
+                        f"❌ Impossible : tu n'as que {existing['shares']:.0f} actions {symbol}, "
+                        f"pas {shares:.0f}."
+                    )
+                new_shares = existing["shares"] - shares
+                lbl = label or existing["label"] or symbol
+                if new_shares == 0:
+                    await self.db.delete_position(symbol)
+                    return (
+                        f"✅ Position {symbol} ({lbl}) clôturée — toutes les actions vendues à {price:.2f}€."
+                    )
+                else:
+                    await self.db.upsert_position(symbol, new_shares, existing["avg_price"], label)
+                    return (
+                        f"✅ Vente enregistrée — {symbol} ({lbl}) : -{shares:.0f} actions à {price:.2f}€. "
+                        f"Restant : {new_shares:.0f} actions | PRU inchangé : {existing['avg_price']:.2f}€."
+                    )
+
+            return f"❌ Action inconnue : {action}. Utilise buy, sell ou set."
 
         # --- Home Assistant ---
         @reg.register(
@@ -408,11 +501,33 @@ class AlitaBot(BaseBot):
 
     async def setup_hook(self) -> None:
         await self.db.init()
+        await self._seed_portfolio_from_env()
         await self._refresh_prompt()
         self._register_prefix_commands()
         self._scheduler.start()
         await self._subscriber.start(self.settings.asmo_redis_url)
         await super().setup_hook()
+
+    async def _seed_portfolio_from_env(self) -> None:
+        """One-time migration: seed DB portfolio from ALITA_PORTFOLIO env var if DB is empty."""
+        if not self.settings.alita_portfolio or self.settings.alita_portfolio == "[]":
+            return
+        if not await self.db.portfolio_is_empty():
+            return
+        try:
+            positions = json.loads(self.settings.alita_portfolio)
+            count = 0
+            for pos in positions:
+                symbol = pos.get("symbol", "").strip().upper()
+                shares = float(pos.get("shares", 0))
+                avg_price = float(pos.get("avg_price", 0))
+                label = pos.get("label") or pos.get("name")
+                if symbol and shares > 0 and avg_price >= 0:
+                    await self.db.upsert_position(symbol, shares, avg_price, label)
+                    count += 1
+            logger.info("portfolio_seeded_from_env", count=count)
+        except Exception as exc:
+            logger.warning("portfolio_seed_failed", error=str(exc))
 
     async def close(self) -> None:
         self._scheduler.stop()

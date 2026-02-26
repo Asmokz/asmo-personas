@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import structlog
+
+if TYPE_CHECKING:
+    from ..db.manager import AlitaDbManager
 
 logger = structlog.get_logger()
 
@@ -13,20 +15,17 @@ logger = structlog.get_logger()
 class StocksTool:
     """Fetch stock quotes via yfinance (no API key required)."""
 
-    def __init__(self, portfolio_json: str = "[]") -> None:
-        try:
-            self._portfolio: list[dict] = json.loads(portfolio_json)
-        except (json.JSONDecodeError, ValueError):
-            logger.warning("invalid_portfolio_json", raw=portfolio_json[:100])
-            self._portfolio = []
+    def __init__(self, db: AlitaDbManager) -> None:
+        self._db = db
 
     async def get_portfolio_summary(self) -> str:
-        """Return P&L summary for the configured portfolio."""
-        if not self._portfolio:
-            return "📭 Aucun portefeuille configuré (ALITA_PORTFOLIO)."
+        """Return P&L summary for the portfolio stored in DB."""
+        portfolio = await self._db.get_portfolio()
+        if not portfolio:
+            return "📭 Aucune position dans le portefeuille. Utilise `update_portfolio_position` pour en ajouter."
         loop = asyncio.get_event_loop()
         try:
-            result = await loop.run_in_executor(None, self._sync_portfolio_summary)
+            result = await loop.run_in_executor(None, self._sync_portfolio_summary, portfolio)
             return result
         except Exception as exc:
             logger.error("portfolio_error", error=str(exc))
@@ -63,23 +62,22 @@ class StocksTool:
             f"({sign}{var:.2f} / {sign}{var_pct:.2f}%)"
         )
 
-    def _sync_portfolio_summary(self) -> str:
+    def _sync_portfolio_summary(self, portfolio: list[dict]) -> str:
         import yfinance as yf
         lines = ["📊 **Portefeuille**\n"]
         total_invested = 0.0
         total_current = 0.0
 
-        for pos in self._portfolio:
-            symbol = pos.get("symbol", "").upper()
-            shares = float(pos.get("shares", 0))
-            avg_price = float(pos.get("avg_price", 0))
-            if not symbol or shares <= 0:
-                continue
+        for pos in portfolio:
+            symbol = pos["symbol"].upper()
+            shares = float(pos["shares"])
+            avg_price = float(pos["avg_price"])
+            label = pos.get("label") or symbol
             try:
                 t = yf.Ticker(symbol)
                 hist = t.history(period="2d")
                 if hist.empty:
-                    lines.append(f"• **{symbol}** : données indisponibles")
+                    lines.append(f"• **{symbol}** ({label}) : données indisponibles")
                     continue
                 prix = float(hist["Close"].iloc[-1])
                 prev = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else float(hist["Open"].iloc[-1])
@@ -96,12 +94,12 @@ class StocksTool:
                 sign_j = "+" if var_jour >= 0 else ""
                 sign_pl = "+" if pl >= 0 else ""
                 lines.append(
-                    f"• {trend} **{symbol}** ({shares:.0f} actions)\n"
-                    f"  Prix : {prix:.2f} ({sign_j}{var_jour_pct:.2f}% jour)\n"
+                    f"• {trend} **{symbol}** — {label} ({shares:.0f} actions)\n"
+                    f"  Prix : {prix:.2f}€ ({sign_j}{var_jour_pct:.2f}% jour) | PRU : {avg_price:.2f}€\n"
                     f"  {pl_emoji} P&L : {sign_pl}{pl:.2f}€ ({sign_pl}{pl_pct:.2f}%)"
                 )
             except Exception as exc:
-                lines.append(f"• **{symbol}** : erreur ({exc})")
+                lines.append(f"• **{symbol}** ({label}) : erreur ({exc})")
 
         if total_invested > 0:
             total_pl = total_current - total_invested
