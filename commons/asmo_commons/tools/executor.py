@@ -31,9 +31,13 @@ ALLOWED_COMMANDS: frozenset[str] = frozenset(
         "ip",
         "ss",
         "uname",
+        "smartctl",  # read-only SMART queries only (see validation below)
         "cat",  # restricted to /proc and /sys below
     ]
 )
+
+#: smartctl flags that would initiate a disk test or modify device settings.
+_BLOCKED_SMARTCTL_FLAGS: frozenset[str] = frozenset(["-t", "--test", "-s", "--set", "-X", "--abort"])
 
 #: docker sub-commands that are read-only.
 ALLOWED_DOCKER_SUBCOMMANDS: frozenset[str] = frozenset(
@@ -85,6 +89,13 @@ class CommandExecutor:
                 raise ExecutorError(
                     f"Docker sub-command '{subcmd}' is not allowed. "
                     f"Allowed: {sorted(ALLOWED_DOCKER_SUBCOMMANDS)}"
+                )
+
+        if base == "smartctl":
+            blocked = [a for a in cmd[1:] if a in _BLOCKED_SMARTCTL_FLAGS]
+            if blocked:
+                raise ExecutorError(
+                    f"smartctl flag(s) {blocked} are not allowed (disk tests/writes are disabled)."
                 )
 
         if base == "cat":

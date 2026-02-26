@@ -58,8 +58,12 @@ services:
       ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
       FEMTO_DISCORD_TOKEN: "${FEMTO_DISCORD_TOKEN}"
       FEMTO_REPORT_CHANNEL_ID: "${FEMTO_REPORT_CHANNEL_ID:-}"
+      FEMTO_CHAT_CHANNEL_ID: "${FEMTO_CHAT_CHANNEL_ID:-}"
       FEMTO_METRICS_FILE: "/data/metrics.json"
       FEMTO_CMD_TIMEOUT: "${FEMTO_CMD_TIMEOUT:-10}"
+      FEMTO_NAS_DEVICE: "${FEMTO_NAS_DEVICE:-/dev/sda}"
+    devices:
+      - /dev/sda:/dev/sda   # SMART monitoring access
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - femto_data:/data

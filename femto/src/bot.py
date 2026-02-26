@@ -19,6 +19,7 @@ from .tools.system_metrics import SystemMetrics
 from .tools.docker_status import DockerStatus
 from .tools.network_monitor import NetworkMonitor
 from .tools.log_analyzer import LogAnalyzer
+from .tools.disk_health import DiskHealth
 
 logger = structlog.get_logger()
 
@@ -48,6 +49,7 @@ class FemtoBot(BaseBot):
         )
         self.network_monitor = NetworkMonitor(self._executor)
         self.log_analyzer = LogAnalyzer(self._executor, self.ollama)
+        self.disk_health = DiskHealth(self._executor, settings.femto_nas_device)
 
         # Build registry
         self._registry = ToolRegistry()
@@ -68,6 +70,20 @@ class FemtoBot(BaseBot):
 
     def get_registry(self) -> ToolRegistry:
         return self._registry
+
+    # ------------------------------------------------------------------
+    # Respond on dedicated channel without requiring a mention
+    # ------------------------------------------------------------------
+
+    def _is_addressed_to_me(self, message: discord.Message) -> bool:
+        if self.user is None:
+            return False
+        if isinstance(message.channel, discord.DMChannel) or self.user in message.mentions:
+            return True
+        channel_id = self.settings.femto_chat_channel_id
+        if channel_id and message.channel.id == channel_id:
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # Tool registration
@@ -195,6 +211,28 @@ class FemtoBot(BaseBot):
         )
         async def analyze_logs(container: str, hours: int = 24) -> str:
             return await self.log_analyzer.analyze_logs(container, hours)
+
+        @reg.register(
+            "get_disk_health",
+            "Retourne le statut SMART du disque NAS (/dev/sda) : santé globale, secteurs "
+            "réalloués, secteurs en attente, température. Appelle cet outil pour diagnostiquer "
+            "l'état physique du disque NAS ou répondre à des questions sur sa fiabilité.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "full": {
+                        "type": "boolean",
+                        "description": "True pour le rapport SMART complet, False pour juste le statut de santé (défaut)",
+                        "default": False,
+                    },
+                },
+                "required": [],
+            },
+        )
+        async def get_disk_health(full: bool = False) -> str:
+            if full:
+                return await self.disk_health.get_full_report()
+            return await self.disk_health.get_attributes()
 
     # ------------------------------------------------------------------
     # Discord lifecycle

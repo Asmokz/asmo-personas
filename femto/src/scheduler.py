@@ -116,8 +116,16 @@ class FemtoScheduler:
 
         logger.info("generating_daily_report")
         async with channel.typing():
-            # Collect fresh metrics
-            metrics = await self._collect_and_store_metrics()
+            # Collect fresh metrics + SMART health (in parallel)
+            metrics, smart_status = await asyncio.gather(
+                self._collect_and_store_metrics(),
+                bot.disk_health.get_health(),
+                return_exceptions=True,
+            )
+            if isinstance(metrics, Exception):
+                metrics = {}
+            if isinstance(smart_status, Exception):
+                smart_status = f"SMART indisponible : {smart_status}"
 
             # Load last 24h stored history
             history_summary = _load_metrics_summary(
@@ -130,12 +138,14 @@ class FemtoScheduler:
                 f"**Métriques actuelles :**\n"
                 f"Disque système :\n{sys_metrics.get('disk', 'N/A')}\n\n"
                 f"NAS (/mnt/nas) :\n{sys_metrics.get('nas', 'N/A')}\n\n"
+                f"Santé disque NAS (SMART) :\n{smart_status}\n\n"
                 f"Mémoire :\n{sys_metrics.get('memory', 'N/A')}\n\n"
                 f"CPU :\n{sys_metrics.get('cpu', 'N/A')}\n\n"
                 f"Uptime : {sys_metrics.get('uptime', 'N/A')}\n\n"
                 f"Conteneurs :\n{metrics.get('docker', 'N/A')}\n\n"
                 f"**Résumé historique (24h)** :\n{history_summary}\n\n"
-                "Structure ton rapport avec : état général, points d'attention (disque NAS inclus), tendances."
+                "Structure ton rapport avec : état général, points d'attention "
+                "(disque NAS + SMART inclus), tendances."
             )
 
             try:

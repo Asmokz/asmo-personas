@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +15,14 @@ class BaseAsmoSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_empty_str_to_none(cls, data: dict) -> dict:
+        """Convert empty-string env vars to None for all Optional fields."""
+        if isinstance(data, dict):
+            return {k: (None if v == "" else v) for k, v in data.items()}
+        return data
 
     # --- Ollama ---
     asmo_ollama_base_url: str = "http://host.docker.internal:11434"
@@ -37,6 +46,10 @@ class FemtoSettings(BaseAsmoSettings):
     # Discord
     femto_discord_token: str
     femto_report_channel_id: Optional[int] = None
+    femto_chat_channel_id: Optional[int] = None  # responds to all messages without mention
+
+    # NAS disk for SMART monitoring
+    femto_nas_device: str = "/dev/sda"
 
     # Persistence
     femto_metrics_file: str = "/data/metrics.json"
