@@ -135,6 +135,16 @@ class GiorgioBot(BaseBot):
     def get_registry(self) -> ToolRegistry:
         return self._registry
 
+    def _is_addressed_to_me(self, message: discord.Message) -> bool:
+        if self.user is None:
+            return False
+        if isinstance(message.channel, discord.DMChannel) or self.user in message.mentions:
+            return True
+        channel_id = self.settings.giorgio_recommendation_channel_id
+        if channel_id and message.channel.id == channel_id:
+            return True
+        return False
+
     # ------------------------------------------------------------------
     # LLM tool registration
     # ------------------------------------------------------------------

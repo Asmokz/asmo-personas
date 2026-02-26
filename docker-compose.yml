@@ -19,7 +19,7 @@ x-common: &common
     - "host.docker.internal:host-gateway"
   environment:
     ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
-    ASMO_OLLAMA_MODEL: "${ASMO_OLLAMA_MODEL:-mistral:7b}"
+    ASMO_OLLAMA_MODEL: "${ASMO_OLLAMA_MODEL:-ministral-3:14b}"
     ASMO_REDIS_URL: "redis://redis:6379"
     ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
     ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
@@ -52,7 +52,7 @@ services:
       dockerfile: femto/Dockerfile
     environment:
       ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
-      ASMO_OLLAMA_MODEL: "${ASMO_OLLAMA_MODEL:-mistral:7b}"
+      ASMO_OLLAMA_MODEL: "${ASMO_OLLAMA_MODEL:-ministral-3:14b}"
       ASMO_REDIS_URL: "redis://redis:6379"
       ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
       ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
@@ -135,7 +135,7 @@ services:
       dockerfile: giorgio/Dockerfile
     environment:
       ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
-      ASMO_OLLAMA_MODEL: "${ASMO_OLLAMA_MODEL:-mistral:7b}"
+      ASMO_OLLAMA_MODEL: "${ASMO_OLLAMA_MODEL:-ministral-3:14b}"
       ASMO_REDIS_URL: "redis://redis:6379"
       ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
       ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"

@@ -17,7 +17,7 @@ class BaseAsmoSettings(BaseSettings):
 
     # --- Ollama ---
     asmo_ollama_base_url: str = "http://host.docker.internal:11434"
-    asmo_ollama_model: str = "mistral:7b"
+    asmo_ollama_model: str = "ministral-3:14b"
     asmo_ollama_timeout: int = 120
     asmo_ollama_max_retries: int = 3
     asmo_ollama_retry_min_wait: float = 1.0
