@@ -18,6 +18,7 @@ from .db.manager import AlitaDbManager
 from .persona import build_system_prompt
 from .pubsub.subscriber import AlitaSubscriber
 from .scheduler import AlitaScheduler
+from .tools.anytype import AnytypeTool
 from .tools.home_assistant import HomeAssistantTool
 from .tools.long_term_memory import LongTermMemory
 from .tools.memory import MemoryTool
@@ -62,6 +63,11 @@ class AlitaBot(BaseBot):
         )
         self.memory = MemoryTool(self.db)
         self.ltm = LongTermMemory(self.db, self.ollama, settings.alita_embed_model)
+        self.anytype = AnytypeTool(
+            settings.alita_anytype_url,
+            settings.alita_anytype_api_key,
+            settings.alita_anytype_space_id,
+        )
 
         # Registry + scheduler + pubsub
         self._registry = ToolRegistry()
@@ -514,6 +520,93 @@ class AlitaBot(BaseBot):
         )
         async def complete_reminder(reminder_id: int) -> str:
             return await self.memory.complete_reminder(reminder_id)
+
+        # --- Anytype ---
+        @reg.register(
+            "anytype_create_note",
+            "Crée une note ou capture une idée dans Anytype (base de connaissances personnelle). "
+            "Utilise cet outil dès que l'utilisateur mentionne une idée à noter, quelque chose "
+            "à retenir, ou demande explicitement de créer une note ou une page.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Titre de la note"},
+                    "body": {
+                        "type": "string",
+                        "description": "Contenu de la note en Markdown (optionnel)",
+                    },
+                    "type_key": {
+                        "type": "string",
+                        "description": "Type Anytype : 'page' (défaut), 'bookmark', 'collection'",
+                        "default": "page",
+                    },
+                },
+                "required": ["title"],
+            },
+        )
+        async def anytype_create_note(
+            title: str, body: str = "", type_key: str = "page"
+        ) -> str:
+            return await self.anytype.create_note(title, body, type_key)
+
+        @reg.register(
+            "anytype_search",
+            "Recherche dans Anytype par mots-clés. Utilise cet outil pour retrouver des notes, "
+            "projets ou idées existants — notamment avant de les résumer ou quand l'utilisateur "
+            "demande 'mes projets homelab', 'mes idées sur X', etc.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Termes de recherche"},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre max de résultats (défaut : 10)",
+                        "default": 10,
+                    },
+                },
+                "required": ["query"],
+            },
+        )
+        async def anytype_search(query: str, limit: int = 10) -> str:
+            return await self.anytype.search(query, limit)
+
+        @reg.register(
+            "anytype_get_object",
+            "Récupère et affiche le contenu complet d'une note ou d'un projet Anytype à partir "
+            "de son ID. Utilise cet outil après anytype_search pour lire ou résumer un objet.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "object_id": {
+                        "type": "string",
+                        "description": "ID de l'objet Anytype (obtenu via anytype_search)",
+                    },
+                },
+                "required": ["object_id"],
+            },
+        )
+        async def anytype_get_object(object_id: str) -> str:
+            return await self.anytype.get_object(object_id)
+
+        @reg.register(
+            "anytype_list_objects",
+            "Liste les notes et projets récents dans Anytype. Utilise cet outil pour un aperçu "
+            "général de la base de connaissances, ou quand l'utilisateur demande un suivi de "
+            "ses projets homelab et dev en cours.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre max d'objets à lister (défaut : 20)",
+                        "default": 20,
+                    },
+                },
+                "required": [],
+            },
+        )
+        async def anytype_list_objects(limit: int = 20) -> str:
+            return await self.anytype.list_objects(limit)
 
     # ------------------------------------------------------------------
     # Discord lifecycle

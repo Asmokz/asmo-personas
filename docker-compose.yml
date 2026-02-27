@@ -123,6 +123,10 @@ services:
       ALITA_DB_PATH: "/data/alita.db"
       # Long-term memory (RAG)
       ALITA_EMBED_MODEL: "${ALITA_EMBED_MODEL:-nomic-embed-text}"
+      # Anytype self-hosted (notes & project tracking)
+      ALITA_ANYTYPE_URL: "${ALITA_ANYTYPE_URL:-http://host.docker.internal:31013}"
+      ALITA_ANYTYPE_API_KEY: "${ALITA_ANYTYPE_API_KEY:-}"
+      ALITA_ANYTYPE_SPACE_ID: "${ALITA_ANYTYPE_SPACE_ID:-}"
     volumes:
       - alita_data:/data
     ports:

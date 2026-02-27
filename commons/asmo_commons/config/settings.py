@@ -101,6 +101,11 @@ class AlitaSettings(BaseAsmoSettings):
     # Long-term memory (RAG)
     alita_embed_model: str = "nomic-embed-text"
 
+    # Anytype self-hosted
+    alita_anytype_url: str = "http://127.0.0.1:31012"
+    alita_anytype_api_key: Optional[str] = None
+    alita_anytype_space_id: Optional[str] = None
+
 
 class GiorgioSettings(BaseAsmoSettings):
     """Settings for the GIORGIO media bot."""
