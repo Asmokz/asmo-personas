@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Optional
+
+_URL_RE = re.compile(r"https?://[^\s<>\"']+")
+_MAX_AUTO_FETCH = 2  # max URLs to auto-fetch per message
 
 import discord
 import structlog
@@ -125,7 +129,22 @@ class AlitaBot(BaseBot):
     # ------------------------------------------------------------------
 
     async def _get_context_prefix(self, message: discord.Message) -> str:
-        return await self.ltm.search_relevant(message.clean_content)
+        parts = []
+
+        # Long-term memory
+        ltm = await self.ltm.search_relevant(message.clean_content)
+        if ltm:
+            parts.append(ltm)
+
+        # Auto-fetch URLs — don't rely on the model to call fetch_url
+        urls = _URL_RE.findall(message.clean_content)[:_MAX_AUTO_FETCH]
+        for url in urls:
+            content = await self.fetch_url.fetch(url)
+            if content:
+                parts.append(f"[Contenu récupéré depuis {url}]\n{content}\n[Fin du contenu]")
+                logger.debug("url_auto_fetched", url=url, content_len=len(content))
+
+        return "\n\n".join(parts)
 
     async def _on_final_response(self, message: discord.Message, reply: str) -> None:
         # Fire-and-forget — embedding is slow; don't block the response
