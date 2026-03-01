@@ -9,10 +9,32 @@ from typing import Optional
 _URL_RE = re.compile(r"https?://[^\s<>\"']+")
 _MAX_AUTO_FETCH = 2  # max URLs to auto-fetch per message
 
-# Detect explicit Anytype creation requests (triggers a tool reminder injection)
+# Intent-detection patterns — trigger a targeted tool reminder injection in _get_context_prefix.
+# Each pattern catches explicit user intent where a 14B model might absorb the task into text
+# instead of calling the tool.
+
 _ANYTYPE_CREATE_RE = re.compile(
     r"\b(anytype|crée[- ]?(?:moi\s+)?(?:une?\s+)?(?:note|page|mémo)|"
     r"note[- ](?:ça|cela|cette|ce)|noter\s+(?:dans|sur)\s+anytype)\b",
+    re.IGNORECASE,
+)
+_MEMORY_REMEMBER_RE = re.compile(
+    r"\b(souviens[- ]toi|mémorise|retiens|n'oublie pas|remember\s+that|garde\s+en\s+m[eé]moire)\b",
+    re.IGNORECASE,
+)
+_REMINDER_ADD_RE = re.compile(
+    r"\b(rappelle[- ]moi|un rappel|remind\s+me|ajoute\s+un\s+rappel|crée\s+un\s+rappel)\b",
+    re.IGNORECASE,
+)
+_HA_SERVICE_RE = re.compile(
+    r"\b(allume|éteins|étein[st]|ferme|ouvre|baisse|monte|règle|toggle|"
+    r"turn\s+on|turn\s+off|switch\s+on|switch\s+off)\b",
+    re.IGNORECASE,
+)
+_SPOTIFY_CONTROL_RE = re.compile(
+    r"\b(joue|mets?\s+en\s+pause|pause\s+(?:la\s+)?musique|chanson\s+suivante|"
+    r"passe\s+[àa]\s+la\s+suite|next\s+(?:song|track)|skip|"
+    r"reprends?(?:\s+la\s+musique)?|ajoute\s+[àa]\s+la\s+file)\b",
     re.IGNORECASE,
 )
 
@@ -153,16 +175,52 @@ class AlitaBot(BaseBot):
                 parts.append(f"[Contenu récupéré depuis {url}]\n{content}\n[Fin du contenu]")
                 logger.debug("url_auto_fetched", url=url, content_len=len(content))
 
-        # Inject a focused reminder when the user explicitly asks to create an Anytype note.
-        # A 14B model tends to write the note content in the chat when the body is long —
-        # this reminder keeps the tool call at the front of the model's attention.
-        if _ANYTYPE_CREATE_RE.search(message.clean_content):
+        # Inject targeted tool reminders based on detected user intent.
+        # A 14B model tends to absorb write/action operations into its text response
+        # instead of calling the tool — these reminders keep the correct tool call
+        # at the front of the model's attention regardless of context length.
+        content = message.clean_content
+        reminders_injected = []
+
+        if _ANYTYPE_CREATE_RE.search(content):
             parts.append(
                 "[RAPPEL OUTIL : L'utilisateur demande de créer une note Anytype. "
-                "Tu DOIS appeler anytype_create_note en premier, avec tout le contenu "
-                "fourni dans le paramètre body (Markdown). Ne pas écrire la note dans le chat.]"
+                "Appelle anytype_create_note EN PREMIER avec tout le contenu dans body. "
+                "Ne pas écrire la note dans le chat.]"
             )
-            logger.debug("anytype_create_reminder_injected")
+            reminders_injected.append("anytype_create")
+
+        if _MEMORY_REMEMBER_RE.search(content):
+            parts.append(
+                "[RAPPEL OUTIL : L'utilisateur demande de mémoriser quelque chose. "
+                "Appelle memory avec action='remember' IMMÉDIATEMENT. "
+                "Ne pas juste acquiescer — persister dans la DB.]"
+            )
+            reminders_injected.append("memory_remember")
+
+        if _REMINDER_ADD_RE.search(content):
+            parts.append(
+                "[RAPPEL OUTIL : L'utilisateur demande un rappel. "
+                "Appelle reminders avec action='add' IMMÉDIATEMENT avec le contenu et la date si précisée.]"
+            )
+            reminders_injected.append("reminders_add")
+
+        if _HA_SERVICE_RE.search(content):
+            parts.append(
+                "[RAPPEL OUTIL : L'utilisateur demande de contrôler un appareil domotique. "
+                "Appelle call_ha_service IMMÉDIATEMENT. Ne pas décrire l'action sans l'exécuter.]"
+            )
+            reminders_injected.append("ha_service")
+
+        if _SPOTIFY_CONTROL_RE.search(content):
+            parts.append(
+                "[RAPPEL OUTIL : L'utilisateur demande de contrôler Spotify. "
+                "Appelle spotify_control IMMÉDIATEMENT avec la bonne action.]"
+            )
+            reminders_injected.append("spotify_control")
+
+        if reminders_injected:
+            logger.debug("tool_reminders_injected", tools=reminders_injected)
 
         return "\n\n".join(parts)
 
@@ -404,6 +462,8 @@ class AlitaBot(BaseBot):
         @reg.register(
             "call_ha_service",
             "Exécute une action dans Home Assistant (turn_on, turn_off, toggle, activate scene…). "
+            "Appelle cet outil IMMÉDIATEMENT dès que l'utilisateur demande d'allumer, d'éteindre, "
+            "de régler ou de contrôler un appareil. Ne jamais décrire l'action sans l'exécuter. "
             "Utilise get_ha_info pour lire l'état avant d'agir si nécessaire.",
             parameters={
                 "type": "object",
@@ -489,7 +549,9 @@ class AlitaBot(BaseBot):
 
         @reg.register(
             "spotify_control",
-            "Contrôle la lecture Spotify. "
+            "Contrôle la lecture Spotify. Appelle cet outil IMMÉDIATEMENT dès que l'utilisateur "
+            "demande de jouer, mettre en pause, passer à la suite ou ajouter un morceau. "
+            "Ne jamais dire 'je mets en pause' sans avoir appelé l'outil. "
             "action='play'|'pause'|'next'|'previous' : contrôle de lecture, aucun paramètre ; "
             "action='queue' : ajoute un morceau à la file (track_uri requis, format spotify:track:xxx). "
             "Pour trouver un track_uri, utilise get_spotify_info action='search' d'abord.",
@@ -522,6 +584,9 @@ class AlitaBot(BaseBot):
         @reg.register(
             "memory",
             "Gère la mémoire persistante sur Asmo (persiste entre les sessions). "
+            "Appelle TOUJOURS cet outil avec action='remember' dès qu'Asmo mentionne une préférence, "
+            "une info personnelle à retenir, ou dit 'souviens-toi / mémorise / n'oublie pas'. "
+            "Ne jamais juste acquiescer sans appeler l'outil — la mémoire ne persiste que via la DB. "
             "action='remember' : mémorise une info (key et value requis) ; "
             "action='recall' : récupère une info (key requis) ; "
             "action='list' : liste toutes les préférences mémorisées, aucun paramètre.",
@@ -566,7 +631,9 @@ class AlitaBot(BaseBot):
         # --- Reminders ---
         @reg.register(
             "reminders",
-            "Gère les rappels. "
+            "Gère les rappels. Appelle TOUJOURS cet outil avec action='add' dès qu'Asmo dit "
+            "'rappelle-moi', 'remind me' ou demande un rappel — même sans date précise. "
+            "Ne jamais juste répéter le rappel sans l'avoir persisté en DB. "
             "action='add' : crée un rappel (content requis, due_at optionnel au format ISO 8601) ; "
             "action='list' : liste les rappels en attente, aucun paramètre ; "
             "action='complete' : marque un rappel comme terminé (reminder_id requis).",
