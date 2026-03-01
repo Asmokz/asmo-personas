@@ -16,6 +16,8 @@ asmo-personas/
 ├── femto/                # Bot monitoring
 ├── giorgio/              # Bot média
 ├── alita/                # Bot assistante personnelle
+│   └── scripts/
+│       └── label_training.py   # Labelling interactif des échanges (SFT/DPO)
 ├── scripts/
 │   └── init_redis.py
 ├── docker-compose.yml
@@ -246,7 +248,7 @@ ALITA utilise ses outils automatiquement selon le contexte — pas besoin de for
 | `!prefs` | Liste les préférences mémorisées |
 | `!spotify-auth` | Génère l'URL d'authentification Spotify (à faire une seule fois) |
 
-### Outils disponibles
+### Outils disponibles (15 outils consolidés)
 
 | Outil | Description |
 |-------|-------------|
@@ -256,22 +258,15 @@ ALITA utilise ses outils automatiquement selon le contexte — pas besoin de for
 | `get_portfolio_summary` | P&L complet du portefeuille (depuis la DB SQLite) |
 | `get_stock_quote` | Cours d'une action individuelle |
 | `update_portfolio_position` | Achat / vente / correction manuelle d'une position (persisté en DB) |
-| `get_ha_states` | Liste les entités Home Assistant (filtrable par domaine) |
-| `get_ha_entity` | État détaillé d'une entité HA |
-| `call_ha_service` | Appelle un service HA (turn_on, turn_off, toggle, scene…) |
-| `get_ha_sensors_summary` | Résumé des capteurs clés (température, humidité, énergie) |
+| `get_ha_info` | Lit Home Assistant : `states` (liste entités), `entity` (détail), `sensors` (résumé capteurs) |
+| `call_ha_service` | Exécute un service HA (turn_on, turn_off, toggle, scene…) |
 | `web_search` | Recherche web via SearXNG (pour les questions d'actualité) |
-| `get_now_playing` | Titre en cours sur Spotify |
-| `control_spotify` | play / pause / next / previous |
-| `search_spotify` | Recherche track, artiste, playlist |
-| `get_recent_tracks` | Derniers morceaux écoutés |
-| `add_to_spotify_queue` | Ajoute un morceau à la file |
-| `remember` | Mémorise une préférence (persiste entre sessions) |
-| `recall` | Récupère une préférence mémorisée |
-| `list_preferences` | Liste toutes les préférences |
-| `add_reminder` | Crée un rappel (avec date optionnelle) |
-| `get_reminders` | Liste les rappels en attente |
-| `complete_reminder` | Marque un rappel comme terminé |
+| `get_spotify_info` | Lit Spotify : `now_playing` (en cours), `recent_tracks` (historique), `search` (recherche) |
+| `spotify_control` | Contrôle Spotify : `play` / `pause` / `next` / `previous` / `queue` |
+| `memory` | Mémoire persistante : `remember` (mémoriser) / `recall` (récupérer) / `list` (tout lister) |
+| `reminders` | Rappels : `add` (créer) / `list` (lister) / `complete` (terminer) |
+| `anytype_create_note` | Crée une note, page ou mémo dans Anytype (base de connaissance personnelle) |
+| `anytype_read` | Lit Anytype : `search` (chercher) / `get` (lire un objet) / `list` (lister les récents) |
 
 ### Portefeuille boursier
 
@@ -298,6 +293,17 @@ Fonctionne avec tous les tickers Yahoo Finance (actions US, françaises `.PA`, E
 
 Domaines autorisés pour `call_ha_service` : `light`, `switch`, `scene`, `climate`, `input_boolean`, `script`, `automation`.
 
+### Configurer Anytype
+
+1. Démarrer le serveur Anytype local (`anytype-heart` ou desktop avec API activée)
+2. Récupérer la clé API et l'ID d'espace dans les paramètres Anytype
+3. Renseigner dans `.env` :
+   ```env
+   ALITA_ANYTYPE_URL=http://127.0.0.1:31012
+   ALITA_ANYTYPE_API_KEY=xxx
+   ALITA_ANYTYPE_SPACE_ID=xxx
+   ```
+
 ### Configurer Spotify
 
 L'authentification Spotify nécessite un flow OAuth2 initial (une seule fois) :
@@ -317,11 +323,21 @@ Le token est renouvelé automatiquement à chaque démarrage.
 
 ### Mémoire persistante
 
-ALITA maintient une base SQLite (`/data/alita.db`) avec :
+ALITA maintient deux bases SQLite :
+
+**`/data/alita.db`** — base opérationnelle :
 - **Préférences** : clé/valeur persistantes entre les sessions, injectées dans le system prompt
 - **Portefeuille boursier** : positions avec quantités et PRU
-- **Historique** des conversations (7 jours glissants, purgé automatiquement au démarrage)
 - **Rappels** : avec date d'échéance optionnelle
+- **Mémoire long terme (LTM)** : embeddings des échanges passés (`nomic-embed-text`, 768 dim) pour enrichir le contexte par similarité cosinus (seuil 0.72, top-3)
+
+**`/data/alita_training.db`** — collecte de données d'entraînement :
+- Capture automatique de chaque échange complet (format Mistral chat + méta)
+- Champ `quality` (NULL / `good` / `bad`) pour le labelling SFT/DPO
+- Champ `correction` pour les paires DPO (réponse préférée vs rejetée)
+- Script de labelling interactif : `docker exec -it asmo-alita python /app/scripts/label_training.py`
+
+**URLs** : auto-fetchées depuis le message (Jina.ai Reader, max 2) avant l'appel LLM, sans passer par la sélection d'outils.
 
 ---
 
@@ -457,6 +473,12 @@ async def nom_de_loutil(param1: str) -> str:
 - [x] ALITA : recherche web SearXNG
 - [x] ALITA : contrôle Spotify avec OAuth2
 - [x] ALITA : mémoire persistante SQLite (préférences + rappels)
+- [x] ALITA : LTM mémoire long terme via RAG (nomic-embed-text, conversation_vectors SQLite)
+- [x] ALITA : auto-fetch URLs dans le contexte (Jina.ai Reader, bypass sélection d'outil)
+- [x] ALITA : intégration Anytype self-hosted (notes, pages, base de connaissance)
+- [x] ALITA : collecte de données d'entraînement SFT/DPO (training_logger + labelling interactif)
+- [x] ALITA : consolidation 15 outils (action-based, tool calling plus fiable sur 14B)
+- [x] ALITA : injections de rappels ciblés (memory, reminders, HA, Spotify, Anytype)
 - [ ] ALITA : intégration Google Calendar / Nextcloud CalDAV
 - [ ] ALITA : résumé d'actualités via flux RSS
 - [ ] GIORGIO : sync périodique de l'index sémantique (`GIORGIO_SYNC_INTERVAL_HOURS`)
