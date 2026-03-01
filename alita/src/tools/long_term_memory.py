@@ -24,8 +24,10 @@ logger = structlog.get_logger()
 # Minimum message length worth storing (to skip trivial one-liners)
 _MIN_USER_LEN = 20
 _MIN_ASSISTANT_LEN = 40
-# Similarity threshold below which a memory is considered irrelevant
-_SIMILARITY_THRESHOLD = 0.72
+# Similarity threshold below which a memory is considered irrelevant.
+# nomic-embed-text produces scores of 0.60–0.68 for semantically related
+# conversation pairs — 0.72 was too high and caused zero recalls in practice.
+_SIMILARITY_THRESHOLD = 0.60
 # Maximum number of memories to retrieve per query
 _DEFAULT_LIMIT = 3
 
@@ -66,7 +68,7 @@ class LongTermMemory:
                 embedding=vec,
                 channel_id=channel_id,
             )
-            logger.debug("ltm_exchange_saved", user_len=len(user_msg), reply_len=len(assistant_msg))
+            logger.info("ltm_exchange_saved", user_len=len(user_msg), reply_len=len(assistant_msg))
         except Exception as exc:
             # Non-fatal — long-term memory is best-effort
             logger.warning("ltm_embed_failed", error=str(exc))
@@ -110,7 +112,7 @@ class LongTermMemory:
             scores.sort(key=lambda x: x[0], reverse=True)
             top = scores[:limit]
 
-            logger.debug("ltm_search", query_len=len(query), hits=len(top), total=count)
+            logger.info("ltm_search", query_len=len(query), hits=len(top), total=count, threshold=_SIMILARITY_THRESHOLD)
 
             lines = ["[Souvenirs pertinents de nos échanges passés]"]
             for _, row in top:
