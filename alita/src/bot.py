@@ -9,6 +9,13 @@ from typing import Optional
 _URL_RE = re.compile(r"https?://[^\s<>\"']+")
 _MAX_AUTO_FETCH = 2  # max URLs to auto-fetch per message
 
+# Detect explicit Anytype creation requests (triggers a tool reminder injection)
+_ANYTYPE_CREATE_RE = re.compile(
+    r"\b(anytype|crée[- ]?(?:moi\s+)?(?:une?\s+)?(?:note|page|mémo)|"
+    r"note[- ](?:ça|cela|cette|ce)|noter\s+(?:dans|sur)\s+anytype)\b",
+    re.IGNORECASE,
+)
+
 import discord
 import structlog
 from discord.ext import commands
@@ -145,6 +152,17 @@ class AlitaBot(BaseBot):
             if content:
                 parts.append(f"[Contenu récupéré depuis {url}]\n{content}\n[Fin du contenu]")
                 logger.debug("url_auto_fetched", url=url, content_len=len(content))
+
+        # Inject a focused reminder when the user explicitly asks to create an Anytype note.
+        # A 14B model tends to write the note content in the chat when the body is long —
+        # this reminder keeps the tool call at the front of the model's attention.
+        if _ANYTYPE_CREATE_RE.search(message.clean_content):
+            parts.append(
+                "[RAPPEL OUTIL : L'utilisateur demande de créer une note Anytype. "
+                "Tu DOIS appeler anytype_create_note en premier, avec tout le contenu "
+                "fourni dans le paramètre body (Markdown). Ne pas écrire la note dans le chat.]"
+            )
+            logger.debug("anytype_create_reminder_injected")
 
         return "\n\n".join(parts)
 
