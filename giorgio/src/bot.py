@@ -105,7 +105,7 @@ class GiorgioBot(BaseBot):
         super().__init__(
             ollama=OllamaClient(
                 base_url=settings.asmo_ollama_base_url,
-                model=settings.asmo_ollama_model,
+                model=settings.giorgio_ollama_model,
                 timeout=settings.asmo_ollama_timeout,
                 max_retries=settings.asmo_ollama_max_retries,
                 retry_min_wait=settings.asmo_ollama_retry_min_wait,

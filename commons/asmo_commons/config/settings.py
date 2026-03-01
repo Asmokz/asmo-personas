@@ -43,6 +43,9 @@ class BaseAsmoSettings(BaseSettings):
 class FemtoSettings(BaseAsmoSettings):
     """Settings for the FEMTO monitoring bot."""
 
+    # LLM — override global default if needed
+    femto_ollama_model: str = "ministral-3:14b"
+
     # Discord
     femto_discord_token: str
     femto_report_channel_id: Optional[int] = None
@@ -112,6 +115,9 @@ class AlitaSettings(BaseAsmoSettings):
 
 class GiorgioSettings(BaseAsmoSettings):
     """Settings for the GIORGIO media bot."""
+
+    # LLM — override global default if needed
+    giorgio_ollama_model: str = "ministral-3:8b"
 
     # Discord
     giorgio_discord_token: str
