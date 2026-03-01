@@ -19,6 +19,7 @@ from .persona import build_system_prompt
 from .pubsub.subscriber import AlitaSubscriber
 from .scheduler import AlitaScheduler
 from .tools.anytype import AnytypeTool
+from .tools.fetch_url import FetchUrlTool
 from .tools.home_assistant import HomeAssistantTool
 from .tools.long_term_memory import LongTermMemory
 from .tools.memory import MemoryTool
@@ -63,6 +64,7 @@ class AlitaBot(BaseBot):
         )
         self.memory = MemoryTool(self.db)
         self.ltm = LongTermMemory(self.db, self.ollama, settings.alita_embed_model)
+        self.fetch_url = FetchUrlTool()
         self.anytype = AnytypeTool(
             settings.alita_anytype_url,
             settings.alita_anytype_api_key,
@@ -520,6 +522,23 @@ class AlitaBot(BaseBot):
         )
         async def complete_reminder(reminder_id: int) -> str:
             return await self.memory.complete_reminder(reminder_id)
+
+        # --- Fetch URL ---
+        @reg.register(
+            "fetch_url",
+            "Récupère et retourne le contenu d'une page web (GitHub, documentation, article…). "
+            "Utilise cet outil quand l'utilisateur partage un lien et demande de le lire, "
+            "résumer ou analyser.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "URL complète à récupérer"},
+                },
+                "required": ["url"],
+            },
+        )
+        async def fetch_url(url: str) -> str:
+            return await self.fetch_url.fetch(url)
 
         # --- Anytype ---
         @reg.register(

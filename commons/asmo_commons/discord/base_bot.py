@@ -159,6 +159,7 @@ class BaseBot(commands.Bot, ABC):
             history_len=len(history),
         )
 
+        nudge_injected = False
         try:
             for iteration in range(MAX_TOOL_ITERATIONS):
                 turn_t0 = time.monotonic()
@@ -205,15 +206,38 @@ class BaseBot(commands.Bot, ABC):
                         history.append({"role": "assistant", "content": reply_text})
                         await send_long_message(message.channel, reply_text)
                         await self._on_final_response(message, reply_text)
-                    else:
-                        logger.warning("empty_llm_response", turn=iteration + 1)
-                        await message.channel.send("_(aucune réponse du LLM)_")
+                        logger.info(
+                            "llm_done",
+                            total_ms=round((time.monotonic() - t0) * 1000),
+                            turns=iteration + 1,
+                            tool_calls=total_tool_calls,
+                            reply_len=len(reply_text),
+                        )
+                        return
+
+                    # Empty response — retry once with a nudge
+                    logger.warning("empty_llm_response", turn=iteration + 1)
+                    if not nudge_injected:
+                        nudge_injected = True
+                        history.append({
+                            "role": "user",
+                            "content": (
+                                "Tu n'as pas répondu. Tu dois impérativement produire "
+                                "une réponse textuelle, même si tu ne peux pas utiliser "
+                                "d'outil. Réponds directement à ma question précédente."
+                            ),
+                        })
+                        logger.info("empty_response_retry", turn=iteration + 1)
+                        continue
+
+                    # Still empty after nudge — give up
+                    await message.channel.send("_(aucune réponse du LLM)_")
                     logger.info(
                         "llm_done",
                         total_ms=round((time.monotonic() - t0) * 1000),
                         turns=iteration + 1,
                         tool_calls=total_tool_calls,
-                        reply_len=len(reply_text) if reply_text else 0,
+                        reply_len=0,
                     )
                     return
 
