@@ -19,6 +19,7 @@ Keys during review:
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 import textwrap
@@ -83,6 +84,32 @@ def set_quality(
     con.commit()
 
 
+# ── Context prefix stripping ─────────────────────────────────────────────────
+# The stored user message contains injected blocks prepended by _get_context_prefix:
+#   [Souvenirs pertinents...][Fin des souvenirs]
+#   [Contenu récupéré depuis url]...[Fin du contenu]
+#   [RAPPEL OUTIL : ...]
+# In preview mode we strip these so only the raw user question is shown.
+
+_INJECTED_BLOCK_RE = re.compile(
+    r"\[Souvenirs pertinents.*?\[Fin des souvenirs\]\n*"
+    r"|\[Contenu récupéré depuis.*?\[Fin du contenu\]\n*"
+    r"|\[RAPPEL OUTIL[^\]]*\]\n*",
+    re.DOTALL,
+)
+
+
+def _raw_user_message(content: str) -> tuple[str, bool]:
+    """Return (raw_question, had_context).
+
+    Strips injected context blocks, leaving only what the user actually typed.
+    had_context=True signals that context was present (shown as a hint in preview).
+    """
+    stripped = _INJECTED_BLOCK_RE.sub("", content).strip()
+    had_context = stripped != content.strip()
+    return (stripped or content.strip(), had_context)
+
+
 # ── Formatting ───────────────────────────────────────────────────────────────
 
 def _wrap(text: str, width: int = 100, indent: str = "    ") -> str:
@@ -100,6 +127,7 @@ def _wrap(text: str, width: int = 100, indent: str = "    ") -> str:
 
 def _format_messages(messages: list[dict], full: bool = False) -> str:
     lines = []
+    first_user = True
     for msg in messages:
         role = msg.get("role", "?")
         content = (msg.get("content") or "").strip()
@@ -107,8 +135,17 @@ def _format_messages(messages: list[dict], full: bool = False) -> str:
 
         if role == "user":
             prefix = bold(cyan("► User"))
-            text = content[:PREVIEW_LEN] + ("…" if not full and len(content) > PREVIEW_LEN else "") if not full else content
-            lines.append(f"\n{prefix}\n{_wrap(text)}")
+            if not full and first_user:
+                # Strip injected context (LTM, URL fetch, tool reminders)
+                # so the reviewer sees the actual question, not the augmented input.
+                raw, had_context = _raw_user_message(content)
+                hint = f" {dim('[+ contexte LTM/URL]')}" if had_context else ""
+                text = raw[:PREVIEW_LEN] + ("…" if len(raw) > PREVIEW_LEN else "")
+                lines.append(f"\n{prefix}{hint}\n{_wrap(text)}")
+            else:
+                text = content if full else content[:PREVIEW_LEN] + ("…" if len(content) > PREVIEW_LEN else "")
+                lines.append(f"\n{prefix}\n{_wrap(text)}")
+            first_user = False
 
         elif role == "assistant":
             prefix = bold(green("◆ Alita"))
