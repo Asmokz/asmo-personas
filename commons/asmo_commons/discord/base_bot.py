@@ -85,6 +85,23 @@ class BaseBot(commands.Bot, ABC):
         Default: no-op.
         """
 
+    async def _on_exchange_complete(
+        self,
+        message: discord.Message,
+        history_snapshot: list[dict],
+        meta: dict,
+    ) -> None:
+        """Called after a successful exchange with the full conversation snapshot.
+
+        history_snapshot: full history list at the time the reply was sent,
+            in Mistral chat format (role/content/tool_calls).
+        meta: {"model": str, "turns": int, "total_ms": int,
+               "tools_called": list[str], "reply_len": int}
+
+        Override to log exchanges for training data collection.
+        Default: no-op.
+        """
+
     # ------------------------------------------------------------------
     # Discord lifecycle hooks
     # ------------------------------------------------------------------
@@ -160,6 +177,7 @@ class BaseBot(commands.Bot, ABC):
         )
 
         nudge_injected = False
+        tools_called_names: list[str] = []
         try:
             for iteration in range(MAX_TOOL_ITERATIONS):
                 turn_t0 = time.monotonic()
@@ -205,10 +223,22 @@ class BaseBot(commands.Bot, ABC):
                     if reply_text:
                         history.append({"role": "assistant", "content": reply_text})
                         await send_long_message(message.channel, reply_text)
+                        total_ms = round((time.monotonic() - t0) * 1000)
                         await self._on_final_response(message, reply_text)
+                        meta = {
+                            "model": self.ollama.model,
+                            "conv_id": conv_id,
+                            "turns": iteration + 1,
+                            "total_ms": total_ms,
+                            "tools_called": tools_called_names,
+                            "reply_len": len(reply_text),
+                        }
+                        await self._on_exchange_complete(
+                            message, list(history), meta
+                        )
                         logger.info(
                             "llm_done",
-                            total_ms=round((time.monotonic() - t0) * 1000),
+                            total_ms=total_ms,
                             turns=iteration + 1,
                             tool_calls=total_tool_calls,
                             reply_len=len(reply_text),
@@ -261,6 +291,7 @@ class BaseBot(commands.Bot, ABC):
                         name=fn_name,
                         args_keys=list(fn_args.keys()),
                     )
+                    tools_called_names.append(fn_name)
                     result = await registry.execute(fn_name, fn_args)
 
                     history.append(

@@ -19,6 +19,7 @@ from asmo_commons.llm.ollama_client import OllamaClient
 from asmo_commons.tools.registry import ToolRegistry
 
 from .db.manager import AlitaDbManager
+from .db.training_logger import TrainingLogger
 from .persona import build_system_prompt
 from .pubsub.subscriber import AlitaSubscriber
 from .scheduler import AlitaScheduler
@@ -69,6 +70,7 @@ class AlitaBot(BaseBot):
         self.memory = MemoryTool(self.db)
         self.ltm = LongTermMemory(self.db, self.ollama, settings.alita_embed_model)
         self.fetch_url = FetchUrlTool()
+        self.training_logger = TrainingLogger(settings.alita_training_db_path)
         self.anytype = AnytypeTool(
             settings.alita_anytype_url,
             settings.alita_anytype_api_key,
@@ -153,6 +155,23 @@ class AlitaBot(BaseBot):
                 user_msg=message.clean_content,
                 assistant_msg=reply,
                 channel_id=str(message.channel.id),
+            )
+        )
+
+    async def _on_exchange_complete(
+        self,
+        message: discord.Message,
+        history_snapshot: list[dict],
+        meta: dict,
+    ) -> None:
+        # Fire-and-forget — must never block the response
+        asyncio.create_task(
+            self.training_logger.log_exchange(
+                conv_id=meta.get("conv_id", ""),
+                channel_id=str(message.channel.id),
+                system_prompt=self.get_system_prompt(),
+                messages=history_snapshot,
+                meta=meta,
             )
         )
 
@@ -657,6 +676,7 @@ class AlitaBot(BaseBot):
 
     async def setup_hook(self) -> None:
         await self.db.init()
+        await self.training_logger.init()
         await self._seed_portfolio_from_env()
         await self._refresh_prompt()
         self._register_prefix_commands()

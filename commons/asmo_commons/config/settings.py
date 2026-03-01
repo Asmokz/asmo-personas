@@ -101,6 +101,9 @@ class AlitaSettings(BaseAsmoSettings):
     # Long-term memory (RAG)
     alita_embed_model: str = "nomic-embed-text"
 
+    # Training data collection
+    alita_training_db_path: str = "/data/alita_training.db"
+
     # Anytype self-hosted
     alita_anytype_url: str = "http://127.0.0.1:31012"
     alita_anytype_api_key: Optional[str] = None
