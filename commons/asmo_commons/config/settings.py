@@ -73,7 +73,7 @@ class AlitaSettings(BaseAsmoSettings):
     alita_briefing_weekdays_only: bool = True  # skip Sat/Sun
 
     # LLM — Alita uses a larger model than the default
-    alita_ollama_model: str = "mistral-nemo"
+    alita_ollama_model: str = "ministral-3:14b"
 
     # Weather
     alita_weather_api_key: Optional[str] = None

@@ -38,9 +38,8 @@ GIORGIO ──► asmo.media.rated  ──► ALITA (bufferisé pour le briefing
 - Docker + Docker Compose v2
 - Ollama installé sur l'hôte :
   ```bash
-  ollama pull ministral-3:14b   # FEMTO + GIORGIO
-  ollama pull mistral-nemo      # ALITA (recommandé pour la qualité)
-  ollama pull nomic-embed-text  # GIORGIO — index sémantique de la bibliothèque (RAG)
+  ollama pull ministral-3:14b   # tous les bots (FEMTO, GIORGIO, ALITA)
+  ollama pull nomic-embed-text  # ALITA (LTM RAG) + GIORGIO (index sémantique)
   ```
 - Trois applications Discord créées sur <https://discord.com/developers/applications>
   (un token par bot)
@@ -353,14 +352,11 @@ pid: host
 # .env — modèle partagé (FEMTO + GIORGIO)
 ASMO_OLLAMA_MODEL=ministral-3:14b
 
-# Modèle spécifique à ALITA (override)
-ALITA_OLLAMA_MODEL=mistral-nemo
-
 # Modèle d'embedding GIORGIO (RAG bibliothèque)
 GIORGIO_EMBED_MODEL=nomic-embed-text
 ```
 
-Modèles recommandés avec tool calling : `ministral-3:14b`, `mistral-nemo`, `llama3.1:8b`, `qwen2.5:7b`
+Modèles recommandés avec tool calling : `ministral-3:14b`, `llama3.1:8b`, `qwen2.5:7b`
 
 ---
 
