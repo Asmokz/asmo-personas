@@ -324,36 +324,50 @@ class AlitaBot(BaseBot):
 
         # --- Home Assistant ---
         @reg.register(
-            "get_ha_states",
-            "Liste les entités Home Assistant. Utilise domain pour filtrer (light, switch, sensor, climate…).",
+            "get_ha_info",
+            "Consulte Home Assistant en lecture. "
+            "action='states' : liste les entités (domain optionnel : light, switch, sensor, climate…) ; "
+            "action='entity' : état détaillé d'une entité (entity_id requis, ex: light.salon) ; "
+            "action='sensors' : résumé des capteurs clés (température, humidité, énergie) sans paramètre.",
             parameters={
                 "type": "object",
                 "properties": {
-                    "domain": {"type": "string", "description": "Domaine HA (light, switch, sensor…)"},
+                    "action": {
+                        "type": "string",
+                        "enum": ["states", "entity", "sensors"],
+                        "description": "states=liste entités, entity=détail entité, sensors=résumé capteurs",
+                    },
+                    "entity_id": {
+                        "type": "string",
+                        "description": "Requis si action='entity' (ex: light.salon)",
+                    },
+                    "domain": {
+                        "type": "string",
+                        "description": "Optionnel si action='states' pour filtrer (light, switch…)",
+                    },
                 },
-                "required": [],
+                "required": ["action"],
             },
         )
-        async def get_ha_states(domain: str | None = None) -> str:
-            return await self.ha.get_ha_states(domain)
-
-        @reg.register(
-            "get_ha_entity",
-            "Retourne l'état détaillé d'une entité Home Assistant spécifique.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "entity_id": {"type": "string", "description": "ID de l'entité (ex: light.salon)"},
-                },
-                "required": ["entity_id"],
-            },
-        )
-        async def get_ha_entity(entity_id: str) -> str:
-            return await self.ha.get_ha_entity(entity_id)
+        async def get_ha_info(
+            action: str,
+            entity_id: str | None = None,
+            domain: str | None = None,
+        ) -> str:
+            if action == "states":
+                return await self.ha.get_ha_states(domain)
+            if action == "entity":
+                if not entity_id:
+                    return "❌ entity_id requis pour action='entity'."
+                return await self.ha.get_ha_entity(entity_id)
+            if action == "sensors":
+                return await self.ha.get_ha_sensors_summary()
+            return f"❌ action inconnue : {action}. Utilise states, entity ou sensors."
 
         @reg.register(
             "call_ha_service",
-            "Appelle un service Home Assistant (turn_on, turn_off, toggle, activate scene…).",
+            "Exécute une action dans Home Assistant (turn_on, turn_off, toggle, activate scene…). "
+            "Utilise get_ha_info pour lire l'état avant d'agir si nécessaire.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -369,13 +383,6 @@ class AlitaBot(BaseBot):
             domain: str, service: str, entity_id: str, data: dict | None = None
         ) -> str:
             return await self.ha.call_ha_service(domain, service, entity_id, data)
-
-        @reg.register(
-            "get_ha_sensors_summary",
-            "Retourne un résumé des capteurs clés de la maison (température, humidité, énergie).",
-        )
-        async def get_ha_sensors_summary() -> str:
-            return await self.ha.get_ha_sensors_summary()
 
         # --- Web Search ---
         @reg.register(
@@ -396,168 +403,177 @@ class AlitaBot(BaseBot):
 
         # --- Spotify ---
         @reg.register(
-            "get_now_playing",
-            "Retourne la musique en cours de lecture sur Spotify.",
-        )
-        async def get_now_playing() -> str:
-            return await self.spotify.get_now_playing()
-
-        @reg.register(
-            "control_spotify",
-            "Contrôle la lecture Spotify : play, pause, next, previous.",
+            "get_spotify_info",
+            "Consulte Spotify en lecture. "
+            "action='now_playing' : morceau en cours, aucun paramètre ; "
+            "action='recent_tracks' : derniers morceaux écoutés (limit optionnel, défaut 10) ; "
+            "action='search' : recherche un morceau/artiste/playlist (query requis, "
+            "search_type optionnel : track|artist|playlist, défaut track).",
             parameters={
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["play", "pause", "next", "previous"],
-                        "description": "Action à effectuer",
-                    }
+                        "enum": ["now_playing", "recent_tracks", "search"],
+                        "description": "now_playing=en cours, recent_tracks=historique, search=recherche",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Requis si action='search'",
+                    },
+                    "search_type": {
+                        "type": "string",
+                        "enum": ["track", "artist", "playlist"],
+                        "description": "Optionnel si action='search' (défaut: track)",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Optionnel si action='recent_tracks' (défaut: 10)",
+                    },
                 },
                 "required": ["action"],
             },
         )
-        async def control_spotify(action: str) -> str:
-            return await self.spotify.control_playback(action)
+        async def get_spotify_info(
+            action: str,
+            query: str | None = None,
+            search_type: str = "track",
+            limit: int = 10,
+        ) -> str:
+            if action == "now_playing":
+                return await self.spotify.get_now_playing()
+            if action == "recent_tracks":
+                return await self.spotify.get_recent_tracks(limit)
+            if action == "search":
+                if not query:
+                    return "❌ query requis pour action='search'."
+                return await self.spotify.search_spotify(query, search_type)
+            return f"❌ action inconnue : {action}. Utilise now_playing, recent_tracks ou search."
 
         @reg.register(
-            "search_spotify",
-            "Recherche un morceau, artiste ou playlist sur Spotify.",
+            "spotify_control",
+            "Contrôle la lecture Spotify. "
+            "action='play'|'pause'|'next'|'previous' : contrôle de lecture, aucun paramètre ; "
+            "action='queue' : ajoute un morceau à la file (track_uri requis, format spotify:track:xxx). "
+            "Pour trouver un track_uri, utilise get_spotify_info action='search' d'abord.",
             parameters={
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string"},
-                    "search_type": {
+                    "action": {
                         "type": "string",
-                        "enum": ["track", "artist", "playlist"],
-                        "default": "track",
+                        "enum": ["play", "pause", "next", "previous", "queue"],
+                        "description": "play/pause/next/previous=contrôle lecture, queue=ajouter à la file",
+                    },
+                    "track_uri": {
+                        "type": "string",
+                        "description": "Requis si action='queue' (ex: spotify:track:4iV5W9uYEdYUVa79Axb7Rh)",
                     },
                 },
-                "required": ["query"],
+                "required": ["action"],
             },
         )
-        async def search_spotify(query: str, search_type: str = "track") -> str:
-            return await self.spotify.search_spotify(query, search_type)
-
-        @reg.register(
-            "get_recent_tracks",
-            "Retourne les derniers morceaux écoutés sur Spotify.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "limit": {"type": "integer", "default": 10},
-                },
-                "required": [],
-            },
-        )
-        async def get_recent_tracks(limit: int = 10) -> str:
-            return await self.spotify.get_recent_tracks(limit)
-
-        @reg.register(
-            "add_to_spotify_queue",
-            "Ajoute un morceau à la file de lecture Spotify (URI spotify:track:xxx).",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "track_uri": {"type": "string", "description": "URI Spotify du morceau"},
-                },
-                "required": ["track_uri"],
-            },
-        )
-        async def add_to_spotify_queue(track_uri: str) -> str:
-            return await self.spotify.add_to_queue(track_uri)
+        async def spotify_control(action: str, track_uri: str | None = None) -> str:
+            if action == "queue":
+                if not track_uri:
+                    return "❌ track_uri requis pour action='queue'."
+                return await self.spotify.add_to_queue(track_uri)
+            if action in ("play", "pause", "next", "previous"):
+                return await self.spotify.control_playback(action)
+            return f"❌ action inconnue : {action}."
 
         # --- Memory ---
         @reg.register(
-            "remember",
-            "Mémorise une préférence ou information sur Asmo (persiste entre les sessions).",
+            "memory",
+            "Gère la mémoire persistante sur Asmo (persiste entre les sessions). "
+            "action='remember' : mémorise une info (key et value requis) ; "
+            "action='recall' : récupère une info (key requis) ; "
+            "action='list' : liste toutes les préférences mémorisées, aucun paramètre.",
             parameters={
                 "type": "object",
                 "properties": {
-                    "key": {"type": "string", "description": "Clé (ex: genre_musical_prefere)"},
-                    "value": {"type": "string", "description": "Valeur à mémoriser"},
+                    "action": {
+                        "type": "string",
+                        "enum": ["remember", "recall", "list"],
+                        "description": "remember=mémoriser, recall=récupérer, list=tout lister",
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "Requis pour remember et recall (ex: genre_musical_prefere)",
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "Requis si action='remember'",
+                    },
                 },
-                "required": ["key", "value"],
+                "required": ["action"],
             },
         )
-        async def remember(key: str, value: str) -> str:
-            result = await self.memory.remember(key, value)
-            await self._refresh_prompt()
-            return result
+        async def memory(
+            action: str, key: str | None = None, value: str | None = None
+        ) -> str:
+            mem = self.memory
+            if action == "remember":
+                if not key or not value:
+                    return "❌ key et value requis pour action='remember'."
+                result = await mem.remember(key, value)
+                await self._refresh_prompt()
+                return result
+            if action == "recall":
+                if not key:
+                    return "❌ key requis pour action='recall'."
+                return await mem.recall(key)
+            if action == "list":
+                return await mem.list_preferences()
+            return f"❌ action inconnue : {action}. Utilise remember, recall ou list."
 
+        # --- Reminders ---
         @reg.register(
-            "recall",
-            "Récupère une préférence mémorisée.",
+            "reminders",
+            "Gère les rappels. "
+            "action='add' : crée un rappel (content requis, due_at optionnel au format ISO 8601) ; "
+            "action='list' : liste les rappels en attente, aucun paramètre ; "
+            "action='complete' : marque un rappel comme terminé (reminder_id requis).",
             parameters={
                 "type": "object",
                 "properties": {
-                    "key": {"type": "string"},
+                    "action": {
+                        "type": "string",
+                        "enum": ["add", "list", "complete"],
+                        "description": "add=créer, list=lister, complete=terminer",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Requis si action='add'",
+                    },
+                    "due_at": {
+                        "type": "string",
+                        "description": "Optionnel si action='add' — date ISO 8601 (ex: 2026-03-15T09:00:00)",
+                    },
+                    "reminder_id": {
+                        "type": "integer",
+                        "description": "Requis si action='complete'",
+                    },
                 },
-                "required": ["key"],
+                "required": ["action"],
             },
         )
-        async def recall(key: str) -> str:
-            return await self.memory.recall(key)
-
-        @reg.register(
-            "list_preferences",
-            "Liste toutes les préférences mémorisées.",
-        )
-        async def list_preferences() -> str:
-            return await self.memory.list_preferences()
-
-        @reg.register(
-            "add_reminder",
-            "Crée un rappel avec optionnellement une date d'échéance.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "content": {"type": "string", "description": "Contenu du rappel"},
-                    "due_at": {"type": "string", "description": "Date/heure ISO 8601 (optionnel)"},
-                },
-                "required": ["content"],
-            },
-        )
-        async def add_reminder(content: str, due_at: str | None = None) -> str:
-            return await self.memory.add_reminder(content, due_at)
-
-        @reg.register(
-            "get_reminders",
-            "Liste les rappels en attente.",
-        )
-        async def get_reminders() -> str:
-            return await self.memory.get_reminders()
-
-        @reg.register(
-            "complete_reminder",
-            "Marque un rappel comme terminé.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "reminder_id": {"type": "integer", "description": "ID du rappel"},
-                },
-                "required": ["reminder_id"],
-            },
-        )
-        async def complete_reminder(reminder_id: int) -> str:
-            return await self.memory.complete_reminder(reminder_id)
-
-        # --- Fetch URL ---
-        @reg.register(
-            "fetch_url",
-            "Récupère et retourne le contenu d'une page web (GitHub, documentation, article…). "
-            "Utilise cet outil quand l'utilisateur partage un lien et demande de le lire, "
-            "résumer ou analyser.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "URL complète à récupérer"},
-                },
-                "required": ["url"],
-            },
-        )
-        async def fetch_url(url: str) -> str:
-            return await self.fetch_url.fetch(url)
+        async def reminders(
+            action: str,
+            content: str | None = None,
+            due_at: str | None = None,
+            reminder_id: int | None = None,
+        ) -> str:
+            if action == "add":
+                if not content:
+                    return "❌ content requis pour action='add'."
+                return await self.memory.add_reminder(content, due_at)
+            if action == "list":
+                return await self.memory.get_reminders()
+            if action == "complete":
+                if reminder_id is None:
+                    return "❌ reminder_id requis pour action='complete'."
+                return await self.memory.complete_reminder(reminder_id)
+            return f"❌ action inconnue : {action}. Utilise add, list ou complete."
 
         # --- Anytype ---
         @reg.register(
@@ -588,63 +604,52 @@ class AlitaBot(BaseBot):
             return await self.anytype.create_note(title, body, type_key)
 
         @reg.register(
-            "anytype_search",
-            "Recherche dans Anytype par mots-clés. Utilise cet outil pour retrouver des notes, "
-            "projets ou idées existants — notamment avant de les résumer ou quand l'utilisateur "
-            "demande 'mes projets homelab', 'mes idées sur X', etc.",
+            "anytype_read",
+            "Consulte la base de connaissances Anytype en lecture. "
+            "action='search' : recherche par mots-clés (query requis, limit optionnel défaut 10) ; "
+            "action='get' : contenu complet d'un objet (object_id requis — obtenu via search) ; "
+            "action='list' : liste les notes/projets récents (limit optionnel, défaut 20).",
             parameters={
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Termes de recherche"},
-                    "limit": {
-                        "type": "integer",
-                        "description": "Nombre max de résultats (défaut : 10)",
-                        "default": 10,
+                    "action": {
+                        "type": "string",
+                        "enum": ["search", "get", "list"],
+                        "description": "search=rechercher, get=lire un objet, list=lister récents",
                     },
-                },
-                "required": ["query"],
-            },
-        )
-        async def anytype_search(query: str, limit: int = 10) -> str:
-            return await self.anytype.search(query, limit)
-
-        @reg.register(
-            "anytype_get_object",
-            "Récupère et affiche le contenu complet d'une note ou d'un projet Anytype à partir "
-            "de son ID. Utilise cet outil après anytype_search pour lire ou résumer un objet.",
-            parameters={
-                "type": "object",
-                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Requis si action='search'",
+                    },
                     "object_id": {
                         "type": "string",
-                        "description": "ID de l'objet Anytype (obtenu via anytype_search)",
+                        "description": "Requis si action='get'",
                     },
-                },
-                "required": ["object_id"],
-            },
-        )
-        async def anytype_get_object(object_id: str) -> str:
-            return await self.anytype.get_object(object_id)
-
-        @reg.register(
-            "anytype_list_objects",
-            "Liste les notes et projets récents dans Anytype. Utilise cet outil pour un aperçu "
-            "général de la base de connaissances, ou quand l'utilisateur demande un suivi de "
-            "ses projets homelab et dev en cours.",
-            parameters={
-                "type": "object",
-                "properties": {
                     "limit": {
                         "type": "integer",
-                        "description": "Nombre max d'objets à lister (défaut : 20)",
-                        "default": 20,
+                        "description": "Optionnel pour search (défaut 10) et list (défaut 20)",
                     },
                 },
-                "required": [],
+                "required": ["action"],
             },
         )
-        async def anytype_list_objects(limit: int = 20) -> str:
-            return await self.anytype.list_objects(limit)
+        async def anytype_read(
+            action: str,
+            query: str | None = None,
+            object_id: str | None = None,
+            limit: int | None = None,
+        ) -> str:
+            if action == "search":
+                if not query:
+                    return "❌ query requis pour action='search'."
+                return await self.anytype.search(query, limit or 10)
+            if action == "get":
+                if not object_id:
+                    return "❌ object_id requis pour action='get'."
+                return await self.anytype.get_object(object_id)
+            if action == "list":
+                return await self.anytype.list_objects(limit or 20)
+            return f"❌ action inconnue : {action}. Utilise search, get ou list."
 
     # ------------------------------------------------------------------
     # Discord lifecycle
