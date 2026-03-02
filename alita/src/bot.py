@@ -305,10 +305,10 @@ class AlitaBot(BaseBot):
 
         # --- Stocks ---
         @reg.register(
-            "get_portfolio_summary",
+            "get_portfolio_info",
             "Retourne le résumé du portefeuille boursier avec les performances et P&L.",
         )
-        async def get_portfolio_summary() -> str:
+        async def get_portfolio_info() -> str:
             return await self.stocks.get_portfolio_summary()
 
         @reg.register(

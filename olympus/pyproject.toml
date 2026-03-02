@@ -1,0 +1,16 @@
+# Olympus pyproject.toml — metadata only (not installed as a package).
+# Dependencies are installed directly in the Dockerfile.
+# Use PYTHONPATH=/app to import olympus.src.*, alita.src.*, etc.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "olympus"
+version = "0.2.0"
+description = "Olympus — HTTP/WebSocket gateway for ASMO personas"
+requires-python = ">=3.11"
+
+[tool.hatch.build.targets.wheel]
+packages = []

@@ -1,0 +1,120 @@
+/* ── Fonts ── */
+@font-face {
+  font-family: 'Bookman';
+  src: url('./fonts/bookman.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+}
+
+/* ── Design tokens ── */
+:root {
+  /* Dark mode (default) */
+  --bg: #1a1410;
+  --bg-surface: #221c16;
+  --bg-hover: #2e261d;
+  --text: #FAF7F2;
+  --text-dim: #a89880;
+  --accent: #E85D04;
+  --accent2: #FFD2B8;
+  --border: #3d2e20;
+  --sidebar-width: 280px;
+  --input-bg: #2a2018;
+  --bubble-user: #3d2e20;
+  --bubble-persona: #221c16;
+  font-family: 'Bookman', Georgia, serif;
+}
+
+.light-mode {
+  --bg: #FAF7F2;
+  --bg-surface: #f0ebe3;
+  --bg-hover: #e5ddd4;
+  --text: #2E1F17;
+  --text-dim: #7a6050;
+  --border: #d4c4b0;
+  --input-bg: #fff;
+  --bubble-user: #ffe4cf;
+  --bubble-persona: #f0ebe3;
+}
+
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #app {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* ── Layout ── */
+.app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  transition: margin-left 0.2s;
+}
+
+.welcome {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.welcome-inner {
+  text-align: center;
+  max-width: 480px;
+  padding: 2rem;
+}
+
+.welcome-inner h1 {
+  font-size: 3rem;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.05em;
+}
+
+.welcome-inner p {
+  color: var(--text-dim);
+  margin-bottom: 2rem;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Buttons ── */
+button {
+  cursor: pointer;
+  font-family: inherit;
+  border: none;
+  background: none;
+  color: var(--text);
+}
+
+button.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  padding: 0.5rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  transition: opacity 0.15s;
+}
+
+button.btn-primary:hover { opacity: 0.85; }
+
+/* ── Utilities ── */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0;
+}

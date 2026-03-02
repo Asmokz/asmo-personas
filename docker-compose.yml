@@ -177,6 +177,85 @@ services:
       redis:
         condition: service_healthy
 
+  # ── OLYMPUS ───────────────────────────────────────────────────────────────
+  olympus:
+    <<: *common
+    build:
+      context: .
+      dockerfile: olympus/Dockerfile
+    container_name: asmo-olympus
+    environment:
+      ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      ASMO_REDIS_URL: "redis://redis:6379"
+      ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
+      ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
+      # --- Alita ---
+      ALITA_OLLAMA_MODEL: "${ALITA_OLLAMA_MODEL:-ministral-3:14b}"
+      ALITA_DISCORD_TOKEN: "disabled"          # not used in Olympus
+      ALITA_WEATHER_API_KEY: "${ALITA_WEATHER_API_KEY:-}"
+      ALITA_WEATHER_CITY: "${ALITA_WEATHER_CITY:-Marseille,FR}"
+      ALITA_PORTFOLIO: "${ALITA_PORTFOLIO:-[]}"
+      ALITA_HA_URL: "${ALITA_HA_URL:-http://homeassistant:8123}"
+      ALITA_HA_TOKEN: "${ALITA_HA_TOKEN:-}"
+      ALITA_SPOTIFY_CLIENT_ID: "${ALITA_SPOTIFY_CLIENT_ID:-}"
+      ALITA_SPOTIFY_CLIENT_SECRET: "${ALITA_SPOTIFY_CLIENT_SECRET:-}"
+      ALITA_SPOTIFY_REDIRECT_URI: "${ALITA_SPOTIFY_REDIRECT_URI:-http://localhost:8080/spotify/callback}"
+      ALITA_SEARXNG_URL: "${ALITA_SEARXNG_URL:-http://searxng:8080}"
+      ALITA_DB_PATH: "/data/alita.db"
+      ALITA_EMBED_MODEL: "${ALITA_EMBED_MODEL:-nomic-embed-text}"
+      ALITA_TRAINING_DB_PATH: "/data/alita_training.db"
+      ALITA_ANYTYPE_URL: "${ALITA_ANYTYPE_URL:-http://host.docker.internal:31013}"
+      ALITA_ANYTYPE_API_KEY: "${ALITA_ANYTYPE_API_KEY:-}"
+      ALITA_ANYTYPE_SPACE_ID: "${ALITA_ANYTYPE_SPACE_ID:-}"
+      # --- Femto ---
+      FEMTO_OLLAMA_MODEL: "${FEMTO_OLLAMA_MODEL:-ministral-3:14b}"
+      FEMTO_DISCORD_TOKEN: "disabled"
+      FEMTO_METRICS_FILE: "/data/femto/metrics.json"
+      FEMTO_CMD_TIMEOUT: "${FEMTO_CMD_TIMEOUT:-10}"
+      FEMTO_NAS_DEVICE: "${FEMTO_NAS_DEVICE:-/dev/sda}"
+      FEMTO_NAS_SMART_TYPE: "${FEMTO_NAS_SMART_TYPE:-sat}"
+      # --- Giorgio ---
+      GIORGIO_OLLAMA_MODEL: "${GIORGIO_OLLAMA_MODEL:-ministral-3:8b}"
+      GIORGIO_DISCORD_TOKEN: "disabled"
+      GIORGIO_CHANNEL_ID: "0"
+      GIORGIO_JELLYFIN_URL: "${GIORGIO_JELLYFIN_URL:-}"
+      GIORGIO_JELLYFIN_API_KEY: "${GIORGIO_JELLYFIN_API_KEY:-}"
+      GIORGIO_JELLYFIN_USER_ID: "${GIORGIO_JELLYFIN_USER_ID:-}"
+      GIORGIO_DB_HOST: "${GIORGIO_DB_HOST:-giorgio-db}"
+      GIORGIO_DB_PORT: "${GIORGIO_DB_PORT:-3306}"
+      GIORGIO_DB_NAME: "${GIORGIO_DB_NAME:-giorgio}"
+      GIORGIO_DB_USER: "${GIORGIO_DB_USER:-giorgio}"
+      GIORGIO_DB_PASSWORD: "${GIORGIO_DB_PASSWORD:-}"
+      GIORGIO_SEARXNG_URL: "${GIORGIO_SEARXNG_URL:-http://searxng:8080}"
+      GIORGIO_EMBED_MODEL: "${GIORGIO_EMBED_MODEL:-nomic-embed-text}"
+      GIORGIO_VECTOR_DB_PATH: "/data/giorgio_vectors.db"
+      # --- Olympus ---
+      OLYMPUS_DB_PATH: "/data/olympus.db"
+      WHISPER_MODEL: "${WHISPER_MODEL:-small}"
+    cap_add:
+      - SYS_RAWIO                             # FEMTO: smartctl raw disk access
+    devices:
+      - /dev/sda:/dev/sda                     # FEMTO: SMART monitoring
+    volumes:
+      - alita_data:/data                      # alita.db + olympus.db + training.db
+      - femto_data:/data/femto:ro             # FEMTO metrics (read-only)
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # FEMTO: docker tools
+      - /mnt/nas:/mnt/nas:ro                  # FEMTO: NAS tools
+    ports:
+      - "127.0.0.1:8080:8080"                 # API + frontend (local only)
+    networks:
+      - default
+      - giorgio_db                            # access Giorgio MariaDB
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
 volumes:
   redis_data:
   femto_data:

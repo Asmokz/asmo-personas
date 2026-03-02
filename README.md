@@ -1,30 +1,40 @@
 # ASMO Personas
 
-Trois bots Discord autonomes pour le homelab **ASMO-01**.
+Trois personas IA autonomes pour le homelab **ASMO-01**, exposés via une API HTTP/WebSocket et une PWA Vue.js.
 
-| Bot | Rôle | Statut |
-|-----|------|--------|
+| Persona | Rôle | Statut |
+|---------|------|--------|
 | **FEMTO** | Monitoring système & Docker | ✅ Fonctionnel |
 | **GIORGIO** | Médias, notations Jellyfin & recommandations | ✅ Fonctionnel |
 | **ALITA** | Assistante personnelle & briefing matinal | ✅ Fonctionnel |
+| **OLYMPUS** | Gateway API + PWA Vue.js (v0.2.0) | ✅ Fonctionnel |
 
 ## Architecture
 
 ```
 asmo-personas/
-├── commons/              # Lib partagée (OllamaClient, BaseBot, ToolRegistry, RedisPubSub…)
-├── femto/                # Bot monitoring
-├── giorgio/              # Bot média
-├── alita/                # Bot assistante personnelle
+├── commons/              # Lib partagée (OllamaClient, APIEngine, ToolRegistry, RedisPubSub…)
+├── femto/                # Persona monitoring (Discord + Olympus)
+├── giorgio/              # Persona média (Discord + Olympus)
+├── alita/                # Persona assistante personnelle (Discord + Olympus)
 │   └── scripts/
 │       └── label_training.py   # Labelling interactif des échanges (SFT/DPO)
+├── olympus/              # Gateway HTTP/WebSocket + PWA Vue.js
+│   ├── Dockerfile
+│   ├── src/
+│   │   ├── main.py       # FastAPI app
+│   │   ├── routers/      # chat, conversations, personas, feedback, voice
+│   │   ├── personas/     # AlitaPersona, FemtoPersona, GiorgioPersona (wrappent les tools existants)
+│   │   ├── db/           # OlympusDB (conversations + historique SQLite)
+│   │   └── stt/          # faster-whisper (transcription vocale, CPU/int8)
+│   └── frontend/         # Vue 3 + Vite + Pinia + PWA (dark/light mode)
 ├── scripts/
 │   └── init_redis.py
 ├── docker-compose.yml
 └── .env.example
 ```
 
-**Stack** : Python 3.11 · discord.py · Ollama · Redis · Docker Compose · aiosqlite · SQLAlchemy · yfinance · FastAPI · numpy
+**Stack** : Python 3.11 · FastAPI · Vue 3 · Vite · Pinia · Ollama · Redis · Docker Compose · aiosqlite · SQLAlchemy · yfinance · faster-whisper · numpy
 
 ### Flux inter-personas (Redis pub/sub)
 
@@ -35,15 +45,95 @@ GIORGIO ──► asmo.media.rated  ──► ALITA (bufferisé pour le briefing
 
 ---
 
+## Olympus — Gateway API + PWA (v0.2.0)
+
+Olympus est le point d'entrée HTTP/WebSocket pour les trois personas. Il remplace la couche Discord par une interface web PWA accessible depuis n'importe quel navigateur.
+
+### API REST
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/personas` | Liste les personas disponibles (id, nom, couleur) |
+| `GET /api/conversations?persona_id=alita` | Liste les conversations d'une persona |
+| `POST /api/conversations` | Crée une nouvelle conversation `{"persona_id": "alita"}` |
+| `GET /api/conversations/{id}` | Détail + historique complet d'une conversation |
+| `DELETE /api/conversations/{id}` | Supprime une conversation |
+| `POST /api/chat` | Échange non-streamé — retourne `{reply, entry_id, tools_called}` |
+| `POST /api/feedback` | Note un échange `{"entry_id": "...", "quality": "good"\|"bad", "correction": "..."}` |
+| `POST /api/voice` | Transcription audio (multipart WebM/Opus) → `{"text": "..."}` |
+| `GET /health` | Healthcheck `{"status": "ok", "personas": [...]}` |
+
+### WebSocket streaming
+
+```
+WS /api/chat/stream
+```
+
+Le client envoie un seul message JSON :
+```json
+{"conv_id": "...", "persona_id": "alita", "content": "...", "images": ["base64..."]}
+```
+
+Le serveur retourne des événements JSON :
+```json
+{"type": "token",      "content": "..."}
+{"type": "tool_start", "name": "...", "args": {...}}
+{"type": "tool_done",  "name": "...", "result": "..."}
+{"type": "done",       "entry_id": "..."}
+{"type": "error",      "message": "..."}
+```
+
+### Frontend PWA
+
+La PWA Vue 3 est buildée séparément et servie par Olympus comme fichiers statiques :
+
+```bash
+cd olympus/frontend
+npm install
+npm run build    # génère dist/ → servi sur /
+npm run dev      # dev server :5173 avec proxy vers :8080
+```
+
+Fonctionnalités :
+- **Sélecteur de persona** : ALITA, FEMTO, GIORGIO avec avatar et couleur dédiée
+- **Historique de conversations** avec liste paginée dans la sidebar
+- **Streaming tokens** en temps réel via WebSocket
+- **Entrée vocale** push-to-talk (WebM/Opus → faster-whisper)
+- **Partage d'images** (redimensionnées à max 1024px → base64)
+- **Feedback 👍/👎** avec modal de correction pour la collecte SFT/DPO
+- **Dark/light mode** (palette warm : `#1a1410` / `#E85D04`)
+- **PWA installable** avec service worker Workbox (network-first API, cache-first assets)
+
+### Déploiement Olympus
+
+```bash
+# Build le frontend d'abord (optionnel — l'API fonctionne sans)
+cd olympus/frontend && npm install && npm run build && cd -
+
+# Build l'image Docker
+docker compose build olympus
+
+# Démarrer Olympus (+ redis requis)
+docker compose up -d redis olympus
+
+# Vérifier
+curl http://localhost:8080/health
+curl http://localhost:8080/api/personas
+```
+
+Olympus est accessible sur `http://localhost:8080`. La PWA se connecte en WebSocket sur la même URL.
+
+---
+
 ## Prérequis
 
 - Docker + Docker Compose v2
 - Ollama installé sur l'hôte :
   ```bash
-  ollama pull ministral-3:14b   # tous les bots (FEMTO, GIORGIO, ALITA)
+  ollama pull ministral-3:14b   # tous les personas (FEMTO, GIORGIO, ALITA)
   ollama pull nomic-embed-text  # ALITA (LTM RAG) + GIORGIO (index sémantique)
   ```
-- Trois applications Discord créées sur <https://discord.com/developers/applications>
+- Pour les bots Discord : trois applications Discord créées sur <https://discord.com/developers/applications>
   (un token par bot)
 
 ---
@@ -88,9 +178,21 @@ docker compose up -d
 docker compose logs -f femto
 docker compose logs -f alita
 docker compose logs -f giorgio
+docker compose logs -f olympus
 ```
 
-### 5. Démarrer uniquement FEMTO (recommandé pour commencer)
+### 5. Démarrer uniquement Olympus (sans bots Discord)
+
+```bash
+# Build le frontend (optionnel)
+cd olympus/frontend && npm install && npm run build && cd -
+
+docker compose up -d redis olympus
+docker compose logs -f olympus
+# Interface disponible sur http://localhost:8080
+```
+
+### 6. Démarrer uniquement FEMTO (recommandé pour tester le monitoring)
 
 ```bash
 docker compose up -d redis femto
@@ -479,7 +581,13 @@ async def nom_de_loutil(param1: str) -> str:
 - [x] ALITA : collecte de données d'entraînement SFT/DPO (training_logger + labelling interactif)
 - [x] ALITA : consolidation 15 outils (action-based, tool calling plus fiable sur 14B)
 - [x] ALITA : injections de rappels ciblés (memory, reminders, HA, Spotify, Anytype)
+- [x] **OLYMPUS v0.2.0** : gateway FastAPI HTTP/WebSocket — remplace la couche Discord
+- [x] **OLYMPUS** : PWA Vue 3 + Pinia + Vite (dark/light, streaming, push-to-talk, images)
+- [x] **OLYMPUS** : STT faster-whisper CPU/int8 (WebM/Opus → texte)
+- [x] **OLYMPUS** : LTM segmentée par conversation (`conversation_id` filter)
+- [x] **OLYMPUS** : feedback 👍/👎 avec correction (SFT/DPO collecte depuis la PWA)
 - [ ] ALITA : intégration Google Calendar / Nextcloud CalDAV
 - [ ] ALITA : résumé d'actualités via flux RSS
 - [ ] GIORGIO : sync périodique de l'index sémantique (`GIORGIO_SYNC_INTERVAL_HOURS`)
-- [ ] Dashboard web pour les métriques FEMTO (Prometheus + Grafana)
+- [ ] OLYMPUS : notifications push PWA (rappels ALITA, alertes FEMTO)
+- [ ] OLYMPUS : mode multi-utilisateur avec authentification

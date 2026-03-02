@@ -73,8 +73,18 @@ class LongTermMemory:
             # Non-fatal — long-term memory is best-effort
             logger.warning("ltm_embed_failed", error=str(exc))
 
-    async def search_relevant(self, query: str, limit: int = _DEFAULT_LIMIT) -> str:
+    async def search_relevant(
+        self,
+        query: str,
+        limit: int = _DEFAULT_LIMIT,
+        conversation_id: str | None = None,
+    ) -> str:
         """Return a formatted context block of relevant past exchanges.
+
+        Args:
+            query: The user query to match against.
+            limit: Maximum number of memories to return.
+            conversation_id: If set, restrict search to this conversation (channel_id).
 
         Returns an empty string if nothing is relevant or the store is empty.
         """
@@ -91,7 +101,7 @@ class LongTermMemory:
             if q_norm == 0:
                 return ""
 
-            rows = await self._db.get_all_conversation_vectors()
+            rows = await self._db.get_all_conversation_vectors(channel_id=conversation_id)
 
             scores: list[tuple[float, dict]] = []
             for row in rows:

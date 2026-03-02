@@ -204,15 +204,26 @@ class AlitaDbManager:
             )
             await db.commit()
 
-    async def get_all_conversation_vectors(self, limit: int = 500) -> list[dict]:
+    async def get_all_conversation_vectors(
+        self, limit: int = 500, channel_id: Optional[str] = None
+    ) -> list[dict]:
         import json
         async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
-                "SELECT id, user_msg, assistant_msg, embedding, channel_id, created_at "
-                "FROM conversation_vectors ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ) as cur:
-                rows = await cur.fetchall()
+            if channel_id is not None:
+                async with db.execute(
+                    "SELECT id, user_msg, assistant_msg, embedding, channel_id, created_at "
+                    "FROM conversation_vectors WHERE channel_id = ? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (channel_id, limit),
+                ) as cur:
+                    rows = await cur.fetchall()
+            else:
+                async with db.execute(
+                    "SELECT id, user_msg, assistant_msg, embedding, channel_id, created_at "
+                    "FROM conversation_vectors ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ) as cur:
+                    rows = await cur.fetchall()
         return [
             {
                 "id": r[0],

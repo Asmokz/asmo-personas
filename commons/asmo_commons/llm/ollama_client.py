@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional
 
 import aiohttp
 import structlog
@@ -150,6 +150,46 @@ class OllamaClient:
         )
         data = await self._post_chat(payload)
         return data["message"]
+
+    async def chat_stream(
+        self,
+        messages: list[dict],
+        system_prompt: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
+        """Stream a chat response, yielding text tokens as they arrive.
+
+        Args:
+            messages: List of {"role": ..., "content": ...} dicts.
+            system_prompt: Optional system message prepended to messages.
+
+        Yields:
+            Text tokens (str) from the streaming response.
+        """
+        full_messages = _prepend_system(messages, system_prompt)
+        payload = {"model": self.model, "messages": full_messages, "stream": True}
+
+        session = await self._get_session()
+        logger.debug("ollama_chat_stream", model=self.model, msg_count=len(full_messages))
+        async with session.post(
+            f"{self.base_url}/api/chat",
+            json=payload,
+        ) as resp:
+            if resp.status != 200:
+                body = await resp.text()
+                raise OllamaError(f"HTTP {resp.status}: {body[:300]}")
+            async for raw_line in resp.content:
+                line = raw_line.decode("utf-8").strip()
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line)
+                    token = chunk.get("message", {}).get("content", "")
+                    if token:
+                        yield token
+                    if chunk.get("done"):
+                        break
+                except (json.JSONDecodeError, KeyError):
+                    continue
 
     async def embed(self, text: str, model: str) -> list[float]:
         """Return an embedding vector for the given text via /api/embed."""
