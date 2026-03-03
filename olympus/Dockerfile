@@ -48,8 +48,7 @@ COPY giorgio/src/ /app/giorgio/src/
 
 # 4. Copy built Vue.js frontend
 # Pre-build with: cd olympus/frontend && npm install && npm run build
-# If dist/ does not exist, the API still works — frontend simply won't be served.
-RUN mkdir -p /app/olympus/frontend/dist
+COPY olympus/frontend/dist/ /app/olympus/frontend/dist/
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

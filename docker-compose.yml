@@ -242,7 +242,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro   # FEMTO: docker tools
       - /mnt/nas:/mnt/nas:ro                  # FEMTO: NAS tools
     ports:
-      - "127.0.0.1:8484:8484"                 # API + frontend (local only)
+      - "8484:8484"                            # API + frontend
     networks:
       - default
       - giorgio_db                            # access Giorgio MariaDB
