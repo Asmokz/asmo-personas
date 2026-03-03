@@ -123,13 +123,13 @@ async function send() {
   const convId = conversationStore.activeConvId
   if (!convId) return
 
-  // Add user message to UI
-  chatStore.addMessage({ id: Date.now(), role: 'user', content: text, entry_id: null })
-  inputText.value = ''
-  if (inputRef.value) inputRef.value.style.height = 'auto'
-
   const images = [...chatStore.pendingImages]
   chatStore.clearPendingImages()
+
+  // Add user message to UI (with images so they show in the bubble)
+  chatStore.addMessage({ id: Date.now(), role: 'user', content: text, entry_id: null, images: images.length ? images : undefined })
+  inputText.value = ''
+  if (inputRef.value) inputRef.value.style.height = 'auto'
 
   chatStore.startStream()
 

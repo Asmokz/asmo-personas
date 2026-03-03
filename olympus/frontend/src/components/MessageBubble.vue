@@ -1,6 +1,16 @@
 <template>
   <div class="msg-wrapper" :class="msg.role">
     <div class="bubble">
+      <!-- Attached images (user messages) -->
+      <div v-if="msg.images?.length" class="msg-images">
+        <img
+          v-for="(img, i) in msg.images"
+          :key="i"
+          :src="`data:image/jpeg;base64,${img}`"
+          class="msg-img"
+          alt="Image jointe"
+        />
+      </div>
       <div class="content" v-html="rendered" />
       <FeedbackButtons
         v-if="msg.role === 'assistant'"
@@ -90,4 +100,20 @@ const rendered = computed(() => {
 }
 
 .content :deep(strong) { color: var(--accent2); }
+
+.msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.msg-img {
+  max-width: 240px;
+  max-height: 200px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+}
 </style>
