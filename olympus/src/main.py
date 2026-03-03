@@ -175,7 +175,7 @@ if os.path.isdir(_FRONTEND_DIST):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("OLYMPUS_PORT", 8080))
+    port = int(os.environ.get("OLYMPUS_PORT", 8484))
     uvicorn.run(
         "olympus.src.main:app",
         host="0.0.0.0",

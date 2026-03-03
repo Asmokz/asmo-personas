@@ -91,7 +91,7 @@ La PWA Vue 3 est buildée séparément et servie par Olympus comme fichiers stat
 cd olympus/frontend
 npm install
 npm run build    # génère dist/ → servi sur /
-npm run dev      # dev server :5173 avec proxy vers :8080
+npm run dev      # dev server :5173 avec proxy vers :8484
 ```
 
 Fonctionnalités :
@@ -117,11 +117,11 @@ docker compose build olympus
 docker compose up -d redis olympus
 
 # Vérifier
-curl http://localhost:8080/health
-curl http://localhost:8080/api/personas
+curl http://localhost:8484/health
+curl http://localhost:8484/api/personas
 ```
 
-Olympus est accessible sur `http://localhost:8080`. La PWA se connecte en WebSocket sur la même URL.
+Olympus est accessible sur `http://localhost:8484`. La PWA se connecte en WebSocket sur la même URL.
 
 ---
 
@@ -189,7 +189,7 @@ cd olympus/frontend && npm install && npm run build && cd -
 
 docker compose up -d redis olympus
 docker compose logs -f olympus
-# Interface disponible sur http://localhost:8080
+# Interface disponible sur http://localhost:8484
 ```
 
 ### 6. Démarrer uniquement FEMTO (recommandé pour tester le monitoring)

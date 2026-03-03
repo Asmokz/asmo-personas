@@ -199,7 +199,7 @@ services:
       ALITA_HA_TOKEN: "${ALITA_HA_TOKEN:-}"
       ALITA_SPOTIFY_CLIENT_ID: "${ALITA_SPOTIFY_CLIENT_ID:-}"
       ALITA_SPOTIFY_CLIENT_SECRET: "${ALITA_SPOTIFY_CLIENT_SECRET:-}"
-      ALITA_SPOTIFY_REDIRECT_URI: "${ALITA_SPOTIFY_REDIRECT_URI:-http://localhost:8080/spotify/callback}"
+      ALITA_SPOTIFY_REDIRECT_URI: "${ALITA_SPOTIFY_REDIRECT_URI:-http://localhost:8484/spotify/callback}"
       ALITA_SEARXNG_URL: "${ALITA_SEARXNG_URL:-http://searxng:8080}"
       ALITA_DB_PATH: "/data/alita.db"
       ALITA_EMBED_MODEL: "${ALITA_EMBED_MODEL:-nomic-embed-text}"
@@ -242,7 +242,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro   # FEMTO: docker tools
       - /mnt/nas:/mnt/nas:ro                  # FEMTO: NAS tools
     ports:
-      - "127.0.0.1:8080:8080"                 # API + frontend (local only)
+      - "127.0.0.1:8484:8484"                 # API + frontend (local only)
     networks:
       - default
       - giorgio_db                            # access Giorgio MariaDB
@@ -250,7 +250,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8484/health"]
       interval: 30s
       timeout: 10s
       retries: 3

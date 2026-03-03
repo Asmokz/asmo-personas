@@ -56,7 +56,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 
 VOLUME ["/data"]
-EXPOSE 8080
+EXPOSE 8484
 
 CMD ["python", "-m", "uvicorn", "olympus.src.main:app", \
-     "--host", "0.0.0.0", "--port", "8080", "--log-config", "/dev/null"]
+     "--host", "0.0.0.0", "--port", "8484", "--log-config", "/dev/null"]
