@@ -5,12 +5,48 @@ import asyncio
 import json
 from typing import Optional
 
+import aiohttp
 import structlog
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+async def _generate_title(db, conv_id: str, persona, user_msg: str) -> None:
+    """Generate a short LLM title (≤5 words) and persist it. Fire-and-forget."""
+    prompt = (
+        "Génère un titre de 5 mots maximum sans guillemets ni ponctuation finale "
+        f"pour résumer cette question: {user_msg[:300]}"
+    )
+    try:
+        payload = {
+            "model": persona.ollama.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "options": {"num_predict": 12, "temperature": 0.3},
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{persona.ollama.base_url}/api/chat",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    title = (
+                        data["message"]["content"]
+                        .strip()
+                        .strip('"\'«»')
+                        .rstrip('.!?')
+                        .strip()
+                    )
+                    if title:
+                        await db.update_title(conv_id, title[:80])
+                        logger.info("title_generated", conv_id=conv_id, title=title)
+    except Exception as exc:
+        logger.warning("title_generation_failed", conv_id=conv_id, error=str(exc))
 
 
 class ChatRequest(BaseModel):
@@ -61,9 +97,9 @@ async def chat(body: ChatRequest, request: Request):
     if new_messages:
         await db.append_messages(body.conv_id, new_messages)
 
-    # Auto-generate title from first user message
-    if not conv.get("title") and body.content:
-        await db.update_title(body.conv_id, body.content[:60].strip())
+    # Auto-generate title with LLM after first exchange (fire-and-forget)
+    if not conv.get("title") and body.content and reply_text:
+        asyncio.create_task(_generate_title(db, body.conv_id, persona, body.content))
 
     # Fire-and-forget LTM embedding for Alita
     if body.persona_id == "alita" and reply_text and hasattr(persona, "embed_exchange"):
@@ -144,9 +180,9 @@ async def chat_stream(websocket: WebSocket):
         if new_messages:
             await db.append_messages(conv_id, new_messages)
 
-        # Auto title
-        if not conv.get("title") and content:
-            await db.update_title(conv_id, content[:60].strip())
+        # Auto-generate title with LLM after first exchange (fire-and-forget)
+        if not conv.get("title") and content and reply_text:
+            asyncio.create_task(_generate_title(db, conv_id, persona, content))
 
         # Fire-and-forget LTM embedding for Alita
         if persona_id == "alita" and reply_text and hasattr(persona, "embed_exchange"):

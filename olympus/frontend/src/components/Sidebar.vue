@@ -53,7 +53,6 @@ async function newConversation() {
 <style scoped>
 .sidebar {
   width: 0;
-  overflow: hidden;
   background: var(--bg-surface);
   border-right: 1px solid var(--border);
   transition: width 0.2s;
@@ -74,6 +73,11 @@ async function newConversation() {
   height: 100%;
   overflow: hidden;
   padding: 0.75rem 0;
+}
+
+/* Clip sidebar content but NOT the toggle button */
+.sidebar.open {
+  overflow: hidden;
 }
 
 .toggle-btn {

@@ -105,7 +105,11 @@ const { send: wsSend } = useWebSocket((event) => {
   const { type } = event
   if (type === 'token') chatStore.onToken(event.content)
   else if (type === 'tool_start') chatStore.onToolStart(event.name)
-  else if (type === 'done') chatStore.endStream(event.entry_id)
+  else if (type === 'done') {
+    chatStore.endStream(event.entry_id)
+    // Refresh conversation list to pick up the LLM-generated title
+    conversationStore.fetchConversations(personaStore.activePersonaId)
+  }
   else if (type === 'error') {
     chatStore.endStream('')
     console.error('LLM error:', event.message)

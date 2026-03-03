@@ -278,6 +278,16 @@ def _extract_tool_calls_from_content(content: str) -> list[dict]:
         lines = stripped.splitlines()
         stripped = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
 
+    # Mistral/Ministral text format: function_name[ARGS]{"key": "value"}
+    m = re.match(r'^(\w+)\[ARGS\](\{.*\})\s*$', stripped, re.DOTALL)
+    if m:
+        try:
+            arguments = json.loads(m.group(2))
+            if isinstance(arguments, dict):
+                return [{"function": {"name": m.group(1), "arguments": arguments}}]
+        except (json.JSONDecodeError, ValueError):
+            pass
+
     try:
         data = json.loads(stripped.strip())
     except (json.JSONDecodeError, ValueError):
