@@ -22,9 +22,18 @@
       <div class="sidebar-convs">
         <div class="convs-header">
           <span class="convs-label">Conversations</span>
-          <button class="new-conv-btn" @click="newConversation" title="Nouvelle conversation">＋</button>
+        </div>
+        <div class="new-conv-wrap">
+          <button class="btn-primary new-conv-btn" @click="newConversation">
+            + Nouvelle conversation
+          </button>
         </div>
         <ConversationList class="conv-list-scroll" />
+      </div>
+
+      <!-- Footer -->
+      <div class="sidebar-footer">
+        <span class="brand">Olympus v0.2.0</span>
       </div>
 
     </div>
@@ -180,25 +189,31 @@ async function newConversation() {
   font-weight: 600;
 }
 
-.new-conv-btn {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  font-size: 1rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-dim);
-  transition: background 0.12s, color 0.12s;
+.new-conv-wrap {
+  padding: 0.4rem 0.75rem 0.5rem;
+  flex-shrink: 0;
 }
 
-.new-conv-btn:hover {
-  background: var(--bg-hover);
-  color: var(--accent);
+.new-conv-btn {
+  width: 100%;
+  font-size: 0.85rem;
 }
 
 .conv-list-scroll {
   flex: 1;
   min-height: 0;
+}
+
+.sidebar-footer {
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.brand {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
 }
 </style>
