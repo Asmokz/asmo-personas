@@ -134,7 +134,12 @@ class AnytypeTool:
             return f"❌ Erreur lecture Anytype : {exc}"
 
     async def update_object(self, object_id: str, body: Optional[str] = None, title: Optional[str] = None) -> str:
-        """Update the content and/or title of an existing Anytype object."""
+        """Update the content and/or title of an existing Anytype object.
+
+        The Anytype API returns content as 'markdown' on GET but may expect a
+        different field on PATCH. We try both 'body' and 'markdown' to cover
+        both API versions, and log the full response for debugging.
+        """
         if not self._available():
             return "⚠️ Anytype non configuré"
         if not body and not title:
@@ -143,7 +148,9 @@ class AnytypeTool:
         if title:
             payload["name"] = title
         if body:
+            # The GET endpoint returns content as 'markdown'; try both field names
             payload["body"] = body
+            payload["markdown"] = body
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.patch(
@@ -152,12 +159,22 @@ class AnytypeTool:
                     json=payload,
                     timeout=_TIMEOUT,
                 ) as resp:
+                    raw = await resp.text()
+                    logger.debug(
+                        "anytype_update_response",
+                        status=resp.status,
+                        object_id=object_id,
+                        payload_keys=list(payload.keys()),
+                        response=raw[:500],
+                    )
                     if resp.status == 404:
                         return f"❌ Objet `{object_id}` introuvable dans Anytype."
                     if resp.status not in (200, 201, 204):
-                        text = await resp.text()
-                        return f"❌ Erreur Anytype {resp.status} : {text[:200]}"
-                    data = await resp.json() if resp.status != 204 else {}
+                        return f"❌ Erreur Anytype {resp.status} : {raw[:300]}"
+                    try:
+                        data = __import__("json").loads(raw) if raw.strip() else {}
+                    except Exception:
+                        data = {}
             obj = data.get("object", {})
             name = obj.get("name") or title or object_id
             return f"✅ Objet Anytype mis à jour : **{name}** (`{object_id}`)"
