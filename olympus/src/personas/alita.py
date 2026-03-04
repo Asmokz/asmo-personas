@@ -422,53 +422,6 @@ class AlitaPersona(OlympusPersona):
         async def web_search(query: str, num_results: int = 5) -> str:
             return await self.web_search_tool.search(query, num_results)
 
-        # --- Spotify ---
-        @reg.register(
-            "get_spotify_info",
-            "Consulte Spotify en lecture.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["now_playing", "recent_tracks", "search"]},
-                    "query": {"type": "string"},
-                    "search_type": {"type": "string", "enum": ["track", "artist", "playlist"]},
-                    "limit": {"type": "integer"},
-                },
-                "required": ["action"],
-            },
-        )
-        async def get_spotify_info(action: str, query: str | None = None, search_type: str = "track", limit: int = 10) -> str:
-            if action == "now_playing":
-                return await self.spotify.get_now_playing()
-            if action == "recent_tracks":
-                return await self.spotify.get_recent_tracks(limit)
-            if action == "search":
-                if not query:
-                    return "❌ query requis."
-                return await self.spotify.search_spotify(query, search_type)
-            return f"❌ action inconnue : {action}."
-
-        @reg.register(
-            "spotify_control",
-            "Contrôle la lecture Spotify.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["play", "pause", "next", "previous", "queue"]},
-                    "track_uri": {"type": "string"},
-                },
-                "required": ["action"],
-            },
-        )
-        async def spotify_control(action: str, track_uri: str | None = None) -> str:
-            if action == "queue":
-                if not track_uri:
-                    return "❌ track_uri requis."
-                return await self.spotify.add_to_queue(track_uri)
-            if action in ("play", "pause", "next", "previous"):
-                return await self.spotify.control_playback(action)
-            return f"❌ action inconnue : {action}."
-
         # --- Memory ---
         @reg.register(
             "memory",
@@ -569,3 +522,30 @@ class AlitaPersona(OlympusPersona):
             if action == "list":
                 return await self.anytype.list_objects(limit or 20)
             return f"❌ action inconnue : {action}."
+
+        @reg.register(
+            "anytype_update",
+            "Met à jour le contenu ou le titre d'une page Anytype existante. "
+            "Utilise anytype_read action='search' ou action='get' pour obtenir l'object_id, "
+            "puis appelle cet outil pour modifier la page.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "object_id": {
+                        "type": "string",
+                        "description": "ID de l'objet Anytype à modifier (obtenu via anytype_read)",
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Nouveau contenu en Markdown (remplace le contenu existant)",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Nouveau titre (optionnel)",
+                    },
+                },
+                "required": ["object_id"],
+            },
+        )
+        async def anytype_update(object_id: str, body: str | None = None, title: str | None = None) -> str:
+            return await self.anytype.update_object(object_id, body, title)

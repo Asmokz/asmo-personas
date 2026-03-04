@@ -498,88 +498,6 @@ class AlitaBot(BaseBot):
         async def web_search(query: str, num_results: int = 5) -> str:
             return await self.web_search.search(query, num_results)
 
-        # --- Spotify ---
-        @reg.register(
-            "get_spotify_info",
-            "Consulte Spotify en lecture. "
-            "action='now_playing' : morceau en cours, aucun paramètre ; "
-            "action='recent_tracks' : derniers morceaux écoutés (limit optionnel, défaut 10) ; "
-            "action='search' : recherche un morceau/artiste/playlist (query requis, "
-            "search_type optionnel : track|artist|playlist, défaut track).",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["now_playing", "recent_tracks", "search"],
-                        "description": "now_playing=en cours, recent_tracks=historique, search=recherche",
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "Requis si action='search'",
-                    },
-                    "search_type": {
-                        "type": "string",
-                        "enum": ["track", "artist", "playlist"],
-                        "description": "Optionnel si action='search' (défaut: track)",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Optionnel si action='recent_tracks' (défaut: 10)",
-                    },
-                },
-                "required": ["action"],
-            },
-        )
-        async def get_spotify_info(
-            action: str,
-            query: str | None = None,
-            search_type: str = "track",
-            limit: int = 10,
-        ) -> str:
-            if action == "now_playing":
-                return await self.spotify.get_now_playing()
-            if action == "recent_tracks":
-                return await self.spotify.get_recent_tracks(limit)
-            if action == "search":
-                if not query:
-                    return "❌ query requis pour action='search'."
-                return await self.spotify.search_spotify(query, search_type)
-            return f"❌ action inconnue : {action}. Utilise now_playing, recent_tracks ou search."
-
-        @reg.register(
-            "spotify_control",
-            "Contrôle la lecture Spotify. Appelle cet outil IMMÉDIATEMENT dès que l'utilisateur "
-            "demande de jouer, mettre en pause, passer à la suite ou ajouter un morceau. "
-            "Ne jamais dire 'je mets en pause' sans avoir appelé l'outil. "
-            "action='play'|'pause'|'next'|'previous' : contrôle de lecture, aucun paramètre ; "
-            "action='queue' : ajoute un morceau à la file (track_uri requis, format spotify:track:xxx). "
-            "Pour trouver un track_uri, utilise get_spotify_info action='search' d'abord.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["play", "pause", "next", "previous", "queue"],
-                        "description": "play/pause/next/previous=contrôle lecture, queue=ajouter à la file",
-                    },
-                    "track_uri": {
-                        "type": "string",
-                        "description": "Requis si action='queue' (ex: spotify:track:4iV5W9uYEdYUVa79Axb7Rh)",
-                    },
-                },
-                "required": ["action"],
-            },
-        )
-        async def spotify_control(action: str, track_uri: str | None = None) -> str:
-            if action == "queue":
-                if not track_uri:
-                    return "❌ track_uri requis pour action='queue'."
-                return await self.spotify.add_to_queue(track_uri)
-            if action in ("play", "pause", "next", "previous"):
-                return await self.spotify.control_playback(action)
-            return f"❌ action inconnue : {action}."
-
         # --- Memory ---
         @reg.register(
             "memory",
@@ -754,6 +672,35 @@ class AlitaBot(BaseBot):
             if action == "list":
                 return await self.anytype.list_objects(limit or 20)
             return f"❌ action inconnue : {action}. Utilise search, get ou list."
+
+        @reg.register(
+            "anytype_update",
+            "Met à jour le contenu ou le titre d'une page Anytype existante. "
+            "Utilise anytype_read action='search' ou action='get' pour obtenir l'object_id, "
+            "puis appelle cet outil pour modifier la page.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "object_id": {
+                        "type": "string",
+                        "description": "ID de l'objet Anytype à modifier (obtenu via anytype_read)",
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Nouveau contenu en Markdown (remplace le contenu existant)",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Nouveau titre (optionnel)",
+                    },
+                },
+                "required": ["object_id"],
+            },
+        )
+        async def anytype_update(
+            object_id: str, body: str | None = None, title: str | None = None
+        ) -> str:
+            return await self.anytype.update_object(object_id, body, title)
 
     # ------------------------------------------------------------------
     # Discord lifecycle

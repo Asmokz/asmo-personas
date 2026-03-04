@@ -133,6 +133,38 @@ class AnytypeTool:
             logger.error("anytype_get_error", error=str(exc))
             return f"❌ Erreur lecture Anytype : {exc}"
 
+    async def update_object(self, object_id: str, body: Optional[str] = None, title: Optional[str] = None) -> str:
+        """Update the content and/or title of an existing Anytype object."""
+        if not self._available():
+            return "⚠️ Anytype non configuré"
+        if not body and not title:
+            return "❌ Fournis au moins body ou title pour mettre à jour l'objet."
+        payload: dict = {}
+        if title:
+            payload["name"] = title
+        if body:
+            payload["body"] = body
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.patch(
+                    self._objects_url(f"/{object_id}"),
+                    headers=self._headers(),
+                    json=payload,
+                    timeout=_TIMEOUT,
+                ) as resp:
+                    if resp.status == 404:
+                        return f"❌ Objet `{object_id}` introuvable dans Anytype."
+                    if resp.status not in (200, 201, 204):
+                        text = await resp.text()
+                        return f"❌ Erreur Anytype {resp.status} : {text[:200]}"
+                    data = await resp.json() if resp.status != 204 else {}
+            obj = data.get("object", {})
+            name = obj.get("name") or title or object_id
+            return f"✅ Objet Anytype mis à jour : **{name}** (`{object_id}`)"
+        except Exception as exc:
+            logger.error("anytype_update_error", error=str(exc))
+            return f"❌ Erreur mise à jour Anytype : {exc}"
+
     async def list_objects(self, limit: int = 20) -> str:
         """List the most recent objects in the space, grouped by type."""
         if not self._available():
