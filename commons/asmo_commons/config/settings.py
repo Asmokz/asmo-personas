@@ -43,8 +43,14 @@ class BaseAsmoSettings(BaseSettings):
 class FemtoSettings(BaseAsmoSettings):
     """Settings for the FEMTO monitoring bot."""
 
-    # LLM — override global default if needed
-    femto_ollama_model: str = "ministral-3:14b"
+    # LLM — falls back to ASMO_OLLAMA_MODEL if not set in .env
+    femto_ollama_model: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _model_fallback(self) -> "FemtoSettings":
+        if not self.femto_ollama_model:
+            self.femto_ollama_model = self.asmo_ollama_model
+        return self
 
     # Discord
     femto_discord_token: str
@@ -75,8 +81,14 @@ class AlitaSettings(BaseAsmoSettings):
     alita_briefing_hour: int = 7
     alita_briefing_weekdays_only: bool = True  # skip Sat/Sun
 
-    # LLM — Alita uses a larger model than the default
-    alita_ollama_model: str = "ministral-3:14b"
+    # LLM — falls back to ASMO_OLLAMA_MODEL if not set in .env
+    alita_ollama_model: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _model_fallback(self) -> "AlitaSettings":
+        if not self.alita_ollama_model:
+            self.alita_ollama_model = self.asmo_ollama_model
+        return self
 
     # Weather
     alita_weather_api_key: Optional[str] = None
@@ -116,8 +128,14 @@ class AlitaSettings(BaseAsmoSettings):
 class GiorgioSettings(BaseAsmoSettings):
     """Settings for the GIORGIO media bot."""
 
-    # LLM — override global default if needed
-    giorgio_ollama_model: str = "ministral-3:8b"
+    # LLM — falls back to ASMO_OLLAMA_MODEL if not set in .env
+    giorgio_ollama_model: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _model_fallback(self) -> "GiorgioSettings":
+        if not self.giorgio_ollama_model:
+            self.giorgio_ollama_model = self.asmo_ollama_model
+        return self
 
     # Discord
     giorgio_discord_token: str
