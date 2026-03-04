@@ -8,9 +8,16 @@ Workflow:
 
 Storage: conversation_vectors table in the existing alita.db SQLite.
 Embeddings: nomic-embed-text via Ollama /api/embed.
+
+Retrieval uses a hybrid score combining:
+- Base cosine similarity (semantic relevance)
+- Recency bonus: exponential decay with configurable half-life
+- Session boost: flat bonus when the candidate belongs to the current conversation
 """
 from __future__ import annotations
 
+import math
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import structlog
@@ -24,12 +31,58 @@ logger = structlog.get_logger()
 # Minimum message length worth storing (to skip trivial one-liners)
 _MIN_USER_LEN = 20
 _MIN_ASSISTANT_LEN = 40
-# Similarity threshold below which a memory is considered irrelevant.
-# nomic-embed-text produces scores of 0.60–0.68 for semantically related
-# conversation pairs — 0.72 was too high and caused zero recalls in practice.
+# Cosine similarity threshold — candidates below this are discarded before hybrid scoring.
+# nomic-embed-text produces scores of 0.60–0.68 for semantically related pairs.
 _SIMILARITY_THRESHOLD = 0.60
 # Maximum number of memories to retrieve per query
 _DEFAULT_LIMIT = 3
+
+# Hybrid scoring parameters (tunable)
+_RECENCY_WEIGHT: float = 0.15    # max recency contribution (at t=0)
+_SESSION_BOOST: float = 0.25     # flat bonus for same-session candidates
+_HALF_LIFE_HOURS: float = 7 * 24  # recency half-life (7 days)
+
+
+def compute_hybrid_score(
+    cosine: float,
+    created_at: str | None,
+    candidate_channel_id: str | None,
+    current_session_id: str | None,
+    recency_weight: float = _RECENCY_WEIGHT,
+    session_boost: float = _SESSION_BOOST,
+    half_life_hours: float = _HALF_LIFE_HOURS,
+) -> float:
+    """Combine cosine similarity with recency decay and session boost.
+
+    Args:
+        cosine: Base semantic similarity score [0, 1].
+        created_at: ISO 8601 timestamp of the stored exchange.
+        candidate_channel_id: channel_id stored with the vector.
+        current_session_id: conv_id of the active conversation (or None).
+        recency_weight: Max contribution of the recency term.
+        session_boost: Flat bonus when candidate is from the current session.
+        half_life_hours: Exponential decay half-life in hours.
+
+    Returns:
+        Hybrid score capped at 1.0.
+    """
+    score = cosine
+
+    # Recency bonus: exponential decay — full weight at t=0, halves every half_life_hours
+    if created_at:
+        try:
+            dt = datetime.fromisoformat(created_at)
+            hours_ago = (datetime.now() - dt).total_seconds() / 3600
+            recency = math.exp(-math.log(2) * hours_ago / half_life_hours)
+            score += recency_weight * recency
+        except Exception:
+            pass
+
+    # Session boost: same conversation gets a flat priority bump
+    if current_session_id and candidate_channel_id == current_session_id:
+        score += session_boost
+
+    return min(score, 1.0)
 
 
 class LongTermMemory:
@@ -77,14 +130,19 @@ class LongTermMemory:
         self,
         query: str,
         limit: int = _DEFAULT_LIMIT,
-        conversation_id: str | None = None,
+        current_session_id: str | None = None,
     ) -> str:
         """Return a formatted context block of relevant past exchanges.
+
+        Loads all stored vectors (cross-conversation), filters on cosine similarity,
+        then ranks by hybrid score so that recent and same-session memories bubble up.
 
         Args:
             query: The user query to match against.
             limit: Maximum number of memories to return.
-            conversation_id: If set, restrict search to this conversation (channel_id).
+            current_session_id: Active conv_id — candidates from this session receive
+                a session boost, ensuring they rank above cross-conversation results
+                when semantically equivalent.
 
         Returns an empty string if nothing is relevant or the store is empty.
         """
@@ -101,7 +159,8 @@ class LongTermMemory:
             if q_norm == 0:
                 return ""
 
-            rows = await self._db.get_all_conversation_vectors(channel_id=conversation_id)
+            # Load all vectors — hybrid scoring handles cross-session relevance
+            rows = await self._db.get_all_conversation_vectors()
 
             scores: list[tuple[float, dict]] = []
             for row in rows:
@@ -110,9 +169,16 @@ class LongTermMemory:
                     v_norm = float(np.linalg.norm(vec))
                     if v_norm == 0:
                         continue
-                    score = float(np.dot(q, vec) / (q_norm * v_norm))
-                    if score >= _SIMILARITY_THRESHOLD:
-                        scores.append((score, row))
+                    cosine = float(np.dot(q, vec) / (q_norm * v_norm))
+                    if cosine < _SIMILARITY_THRESHOLD:
+                        continue
+                    hybrid = compute_hybrid_score(
+                        cosine=cosine,
+                        created_at=row.get("created_at"),
+                        candidate_channel_id=row.get("channel_id"),
+                        current_session_id=current_session_id,
+                    )
+                    scores.append((hybrid, row))
                 except Exception:
                     continue
 
@@ -122,7 +188,14 @@ class LongTermMemory:
             scores.sort(key=lambda x: x[0], reverse=True)
             top = scores[:limit]
 
-            logger.info("ltm_search", query_len=len(query), hits=len(top), total=count, threshold=_SIMILARITY_THRESHOLD)
+            logger.info(
+                "ltm_search",
+                query_len=len(query),
+                hits=len(top),
+                total=count,
+                threshold=_SIMILARITY_THRESHOLD,
+                session_id=current_session_id,
+            )
 
             lines = ["[Souvenirs pertinents de nos échanges passés]"]
             for _, row in top:

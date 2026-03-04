@@ -33,7 +33,7 @@
 
       <!-- Footer -->
       <div class="sidebar-footer">
-        <span class="brand">Olympus v0.2.0</span>
+        <span class="brand">Olympus v0.2.1</span>
       </div>
 
     </div>

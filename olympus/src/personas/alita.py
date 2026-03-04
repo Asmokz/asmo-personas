@@ -160,7 +160,7 @@ class AlitaPersona(OlympusPersona):
     async def _get_context_prefix(self, conv_id: str, content: str) -> str:
         parts = []
 
-        ltm = await self.ltm.search_relevant(content, conversation_id=conv_id)
+        ltm = await self.ltm.search_relevant(content, current_session_id=conv_id)
         if ltm:
             parts.append(ltm)
 
