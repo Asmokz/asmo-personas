@@ -14,6 +14,7 @@ from femto.src.tools.docker_status import DockerStatus
 from femto.src.tools.network_monitor import NetworkMonitor
 from femto.src.tools.log_analyzer import LogAnalyzer
 from femto.src.tools.disk_health import DiskHealth
+from femto.src.tools.gpu_metrics import GpuMetrics
 
 from .base import OlympusPersona
 
@@ -48,6 +49,7 @@ class FemtoPersona(OlympusPersona):
         self.disk_health = DiskHealth(
             self._executor, settings.femto_nas_device, settings.femto_nas_smart_type
         )
+        self.gpu_metrics = GpuMetrics(self._executor)
 
         self._registry = ToolRegistry()
         self._register_tools()
@@ -60,6 +62,16 @@ class FemtoPersona(OlympusPersona):
 
     def _register_tools(self) -> None:
         reg = self._registry
+
+        @reg.register(
+            "get_gpu_stats",
+            "Retourne les statistiques GPU NVIDIA en temps réel : utilisation, température, "
+            "VRAM utilisée/totale, puissance consommée, horloge, ventilateur. "
+            "Appelle cet outil pour TOUTE question sur le GPU, la carte graphique, la VRAM, "
+            "la température GPU ou l'utilisation GPU.",
+        )
+        async def get_gpu_stats() -> str:
+            return await self.gpu_metrics.get_gpu_stats()
 
         @reg.register(
             "get_disk_usage",

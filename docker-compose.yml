@@ -243,6 +243,13 @@ services:
       - SYS_RAWIO                             # FEMTO: smartctl raw disk access
     devices:
       - /dev/sda:/dev/sda                     # FEMTO: SMART monitoring
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility]    # FEMTO: nvidia-smi GPU monitoring
     volumes:
       - alita_data:/data                      # alita.db + olympus.db + training.db
       - femto_data:/data/femto:ro             # FEMTO metrics (read-only)
