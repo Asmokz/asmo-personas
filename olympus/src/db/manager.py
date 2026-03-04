@@ -129,26 +129,44 @@ class OlympusDB:
     # ------------------------------------------------------------------
 
     async def get_history(self, conv_id: str, limit: int = 20) -> list[dict]:
-        """Return conversation history in chronological order."""
+        """Return the most recent conversation history in chronological order.
+
+        Loads the last `limit` messages (most recent), then reverses to
+        chronological order. Ensures the result starts on a user message to
+        avoid orphaned tool results confusing the LLM.
+        Tool call lists are capped at 5 entries to guard against corrupted history.
+        """
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT role, content, tool_calls, tool_call_id FROM conv_history "
-                "WHERE conv_id = ? ORDER BY created_at ASC LIMIT ?",
+                "WHERE conv_id = ? ORDER BY created_at DESC LIMIT ?",
                 (conv_id, limit),
             ) as cur:
                 rows = await cur.fetchall()
+
+        rows = list(reversed(rows))  # back to chronological order
 
         result = []
         for role, content, tool_calls_json, tool_call_id in rows:
             msg: dict = {"role": role, "content": content}
             if tool_calls_json:
                 try:
-                    msg["tool_calls"] = json.loads(tool_calls_json)
+                    tool_calls = json.loads(tool_calls_json)
+                    # Sanitise: cap tool_calls list to prevent corrupted history
+                    if isinstance(tool_calls, list) and len(tool_calls) > 5:
+                        tool_calls = tool_calls[:5]
+                    msg["tool_calls"] = tool_calls
                 except (json.JSONDecodeError, ValueError):
                     pass
             if tool_call_id:
                 msg["tool_call_id"] = tool_call_id
             result.append(msg)
+
+        # Trim leading non-user messages (orphaned tool results / assistant msgs)
+        # so the LLM always receives a context that starts with a user message.
+        while result and result[0]["role"] != "user":
+            result.pop(0)
+
         return result
 
     async def append_messages(self, conv_id: str, messages: list[dict]) -> None:
