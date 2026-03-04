@@ -150,11 +150,12 @@ app.add_middleware(
 )
 
 # Routers
-from olympus.src.routers import chat, conversations, feedback, personas, voice
+from olympus.src.routers import chat, conversations, feedback, personas, portfolio, voice
 app.include_router(personas.router)
 app.include_router(conversations.router)
 app.include_router(chat.router)
 app.include_router(feedback.router)
+app.include_router(portfolio.router)
 app.include_router(voice.router)
 
 

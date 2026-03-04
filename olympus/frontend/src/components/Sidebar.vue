@@ -36,6 +36,11 @@
         <ConversationList class="conv-list-scroll" />
       </div>
 
+      <!-- Part 4 — Widgets -->
+      <div class="sidebar-widgets">
+        <PortfolioWidget />
+      </div>
+
       <!-- Footer -->
       <div class="sidebar-footer">
         <span class="brand">Olympus v0.2.1</span>
@@ -49,6 +54,7 @@
 import { computed } from 'vue'
 import PersonaSelector from './PersonaSelector.vue'
 import ConversationList from './ConversationList.vue'
+import PortfolioWidget from './PortfolioWidget.vue'
 import { usePersonaStore } from '../stores/persona'
 import { useConversationStore } from '../stores/conversation'
 import { useChatStore } from '../stores/chat'
@@ -219,6 +225,13 @@ async function newConversation() {
 .conv-list-scroll {
   flex: 1;
   min-height: 0;
+}
+
+/* ── Part 4: Widgets ── */
+.sidebar-widgets {
+  flex-shrink: 0;
+  max-height: 260px;
+  overflow-y: auto;
 }
 
 .sidebar-footer {
