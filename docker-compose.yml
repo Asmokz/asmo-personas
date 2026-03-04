@@ -67,6 +67,13 @@ services:
       - SYS_RAWIO           # required for smartctl raw disk access
     devices:
       - /dev/sda:/dev/sda   # SMART monitoring access
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility]  # nvidia-smi requires 'utility'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - femto_data:/data

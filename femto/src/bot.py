@@ -20,6 +20,7 @@ from .tools.docker_status import DockerStatus
 from .tools.network_monitor import NetworkMonitor
 from .tools.log_analyzer import LogAnalyzer
 from .tools.disk_health import DiskHealth
+from .tools.gpu_metrics import GpuMetrics
 
 logger = structlog.get_logger()
 
@@ -50,6 +51,7 @@ class FemtoBot(BaseBot):
         self.network_monitor = NetworkMonitor(self._executor)
         self.log_analyzer = LogAnalyzer(self._executor, self.ollama)
         self.disk_health = DiskHealth(self._executor, settings.femto_nas_device, settings.femto_nas_smart_type)
+        self.gpu_metrics = GpuMetrics(self._executor)
 
         # Build registry
         self._registry = ToolRegistry()
@@ -211,6 +213,14 @@ class FemtoBot(BaseBot):
         )
         async def analyze_logs(container: str, hours: int = 24) -> str:
             return await self.log_analyzer.analyze_logs(container, hours)
+
+        @reg.register(
+            "get_gpu_stats",
+            "Retourne les statistiques GPU NVIDIA : utilisation, température, mémoire VRAM, "
+            "puissance consommée, horloge et vitesse du ventilateur.",
+        )
+        async def get_gpu_stats() -> str:
+            return await self.gpu_metrics.get_gpu_stats()
 
         @reg.register(
             "get_disk_health",

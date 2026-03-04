@@ -31,10 +31,30 @@ ALLOWED_COMMANDS: frozenset[str] = frozenset(
         "ip",
         "ss",
         "uname",
-        "smartctl",  # read-only SMART queries only (see validation below)
-        "cat",  # restricted to /proc and /sys below
+        "smartctl",   # read-only SMART queries only (see validation below)
+        "cat",        # restricted to /proc and /sys below
+        "nvidia-smi", # read-only GPU monitoring (see validation below)
     ]
 )
+
+#: nvidia-smi flags that write settings or reset state.
+_BLOCKED_NVIDIA_FLAGS: frozenset[str] = frozenset([
+    "-pm", "--persistence-mode",
+    "-e", "--ecc-config",
+    "-c", "--compute-mode",
+    "-r", "--gpu-reset",
+    "-ac", "--applications-clocks",
+    "-rac", "--reset-applications-clocks",
+    "-acp", "--applications-clocks-permission",
+    "-pl", "--power-limit",
+    "-cc", "--cuda-clocks",
+    "--gom", "--gpu-operation-mode",
+    "-lgc", "--lock-gpu-clocks",
+    "-lmc", "--lock-memory-clocks",
+    "--inject-error",
+    "--reset-ecc-errors",
+    "--reset-confidence-values",
+])
 
 #: smartctl flags that would initiate a disk test or modify device settings.
 _BLOCKED_SMARTCTL_FLAGS: frozenset[str] = frozenset(["-t", "--test", "-s", "--set", "-X", "--abort"])
@@ -105,6 +125,13 @@ class CommandExecutor:
                         "cat is only allowed for /proc/ and /sys/ paths, "
                         f"got: {arg}"
                     )
+
+        if base == "nvidia-smi":
+            blocked = [a for a in cmd[1:] if a in _BLOCKED_NVIDIA_FLAGS]
+            if blocked:
+                raise ExecutorError(
+                    f"nvidia-smi flag(s) {blocked} are not allowed (write operations disabled)."
+                )
 
     # ------------------------------------------------------------------
     # Execution
