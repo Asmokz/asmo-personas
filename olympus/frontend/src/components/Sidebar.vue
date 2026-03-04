@@ -1,4 +1,5 @@
 <template>
+  <div v-if="open" class="sidebar-overlay" @click="$emit('toggle')" />
   <aside class="sidebar" :class="{ open }">
     <!-- Toggle button — always visible even when closed -->
     <button class="toggle-btn" @click="$emit('toggle')" :title="open ? 'Fermer' : 'Ouvrir'">
@@ -215,5 +216,23 @@ async function newConversation() {
   font-size: 0.7rem;
   color: var(--text-dim);
   letter-spacing: 0.05em;
+}
+
+/* ── Mobile overlay ── */
+.sidebar-overlay {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+  }
+
+  .sidebar.open {
+    z-index: 100;
+  }
 }
 </style>
