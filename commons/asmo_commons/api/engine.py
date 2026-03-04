@@ -140,8 +140,9 @@ class APIEngine(ABC):
                         system_prompt=system_prompt,
                     )
                 except Exception as exc:
-                    logger.error("ollama_error", error=str(exc))
-                    yield {"type": EVT_ERROR, "message": str(exc)}
+                    err_msg = str(exc) or repr(exc) or type(exc).__name__
+                    logger.error("ollama_error", error=err_msg)
+                    yield {"type": EVT_ERROR, "message": err_msg}
                     return
 
                 llm_ms = round((time.monotonic() - turn_t0) * 1000)

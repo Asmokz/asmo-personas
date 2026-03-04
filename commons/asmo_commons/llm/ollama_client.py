@@ -74,10 +74,19 @@ class OllamaClient:
                         raise OllamaError(f"HTTP {resp.status}: {body[:300]}")
                     return await resp.json()
 
+            except asyncio.TimeoutError as exc:
+                # Total request timeout exceeded — no point retrying immediately,
+                # the model is overloaded. Raise a readable error right away.
+                timeout_s = self._timeout.total
+                raise OllamaError(
+                    f"Timeout Ollama ({timeout_s}s dépassé) — "
+                    "le modèle n'a pas répondu à temps. Réessaie ou simplifie la demande."
+                ) from exc
+
             except (aiohttp.ClientConnectionError, aiohttp.ServerTimeoutError) as exc:
                 if attempt >= self._max_retries - 1:
                     raise OllamaError(
-                        f"Connection failed after {self._max_retries} attempts: {exc}"
+                        f"Connexion Ollama échouée après {self._max_retries} tentatives : {exc}"
                     ) from exc
 
                 wait = min(
