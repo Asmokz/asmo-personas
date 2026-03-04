@@ -1,12 +1,16 @@
 <template>
-  <div v-if="open" class="sidebar-overlay" @click="$emit('toggle')" />
-  <aside class="sidebar" :class="{ open }">
+  <!-- Overlay: tap to close on mobile (visible when open or partially dragged open) -->
+  <div v-if="open || dragTransform !== null"
+       class="sidebar-overlay"
+       @click="$emit('toggle')" />
+
+  <aside class="sidebar" :class="{ open }" :style="mobileStyle">
     <!-- Toggle button — always visible even when closed -->
     <button class="toggle-btn" @click="$emit('toggle')" :title="open ? 'Fermer' : 'Ouvrir'">
       {{ open ? '◀' : '▶' }}
     </button>
 
-    <div v-if="open" class="sidebar-inner">
+    <div v-if="open || dragTransform !== null" class="sidebar-inner">
 
       <!-- Part 1 — Olympus branding -->
       <div class="sidebar-header">
@@ -42,18 +46,30 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import PersonaSelector from './PersonaSelector.vue'
 import ConversationList from './ConversationList.vue'
 import { usePersonaStore } from '../stores/persona'
 import { useConversationStore } from '../stores/conversation'
 import { useChatStore } from '../stores/chat'
 
-defineProps({ open: Boolean })
+const props = defineProps({
+  open: Boolean,
+  dragTransform: { type: Number, default: null },
+})
 defineEmits(['toggle'])
 
 const personaStore = usePersonaStore()
 const conversationStore = useConversationStore()
 const chatStore = useChatStore()
+
+// Applied only on mobile during drag — disables CSS transition so sidebar follows finger
+const mobileStyle = computed(() => {
+  if (props.dragTransform !== null) {
+    return { transform: `translateX(${props.dragTransform}px)`, transition: 'none' }
+  }
+  return {}
+})
 
 async function newConversation() {
   chatStore.clear()
@@ -218,21 +234,36 @@ async function newConversation() {
   letter-spacing: 0.05em;
 }
 
-/* ── Mobile overlay ── */
-.sidebar-overlay {
-  display: none;
-}
-
+/* ── Mobile: sidebar fixed + transform-based animation ── */
 @media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: var(--sidebar-width);
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    z-index: 100;
+    overflow: hidden;
+  }
+
+  .sidebar.open {
+    width: var(--sidebar-width);
+    transform: translateX(0);
+    overflow: hidden;
+  }
+
+  /* Hide toggle button on mobile — swipe is the gesture */
+  .toggle-btn {
+    display: none;
+  }
+
   .sidebar-overlay {
     display: block;
     position: fixed;
     inset: 0;
     z-index: 99;
-  }
-
-  .sidebar.open {
-    z-index: 100;
   }
 }
 </style>
