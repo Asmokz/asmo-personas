@@ -22,6 +22,7 @@ logger = structlog.get_logger()
 DISCORD_MAX_LEN = 1990
 # Maximum tool-calling iterations per user turn
 MAX_TOOL_ITERATIONS = 5
+MAX_TOOL_CALLS_PER_TURN = 5
 # Conversation history depth per channel (messages kept)
 HISTORY_MAX = 20
 
@@ -272,6 +273,14 @@ class BaseBot(commands.Bot, ABC):
                     return
 
                 # Execute tool calls
+                if len(tool_calls) > MAX_TOOL_CALLS_PER_TURN:
+                    logger.warning(
+                        "tool_calls_capped",
+                        original=len(tool_calls),
+                        capped=MAX_TOOL_CALLS_PER_TURN,
+                    )
+                    tool_calls = tool_calls[:MAX_TOOL_CALLS_PER_TURN]
+
                 history.append(
                     {
                         "role": "assistant",

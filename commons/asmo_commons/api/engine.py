@@ -21,6 +21,8 @@ from asmo_commons.tools.registry import ToolRegistry
 logger = structlog.get_logger()
 
 MAX_TOOL_ITERATIONS = 5
+# Cap tool calls per single LLM response — prevents runaway parallel call generation
+MAX_TOOL_CALLS_PER_TURN = 5
 
 # Event type constants
 EVT_TOKEN = "token"
@@ -221,6 +223,14 @@ class APIEngine(ABC):
                     return
 
                 # ── Execute tool calls ────────────────────────────────────
+                if len(tool_calls) > MAX_TOOL_CALLS_PER_TURN:
+                    logger.warning(
+                        "tool_calls_capped",
+                        original=len(tool_calls),
+                        capped=MAX_TOOL_CALLS_PER_TURN,
+                    )
+                    tool_calls = tool_calls[:MAX_TOOL_CALLS_PER_TURN]
+
                 history.append({
                     "role": "assistant",
                     "content": response_msg.get("content", ""),
