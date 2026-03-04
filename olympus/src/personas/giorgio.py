@@ -110,20 +110,6 @@ class GiorgioPersona(OlympusPersona):
             return await self.jellyfin.get_recent_items()
 
         @reg.register(
-            "search_media",
-            "Cherche un film ou une série dans Jellyfin.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                },
-                "required": ["query"],
-            },
-        )
-        async def _search(query: str) -> str:
-            return await self.jellyfin.search_media(query)
-
-        @reg.register(
             "get_recommendation",
             "Génère une recommandation personnalisée.",
             parameters={
