@@ -7,6 +7,7 @@ from typing import Optional
 
 import structlog
 
+from asmo_commons.causality.client import CausalityClient
 from asmo_commons.config.settings import AlitaSettings
 from asmo_commons.llm.ollama_client import OllamaClient
 from asmo_commons.tools.registry import ToolRegistry
@@ -16,10 +17,8 @@ from alita.src.db.training_logger import TrainingLogger
 from alita.src.persona import build_system_prompt
 from alita.src.tools.anytype import AnytypeTool
 from alita.src.tools.fetch_url import FetchUrlTool
-from alita.src.tools.home_assistant import HomeAssistantTool
 from alita.src.tools.long_term_memory import LongTermMemory
 from alita.src.tools.memory import MemoryTool
-from alita.src.tools.spotify import SpotifyTool
 from alita.src.tools.stocks import StocksTool
 from alita.src.tools.weather import WeatherTool
 from alita.src.tools.web_search import WebSearchTool
@@ -44,17 +43,6 @@ _REMINDER_ADD_RE = re.compile(
     r"\b(rappelle[- ]moi|un rappel|remind\s+me|ajoute\s+un\s+rappel|crée\s+un\s+rappel)\b",
     re.IGNORECASE,
 )
-_HA_SERVICE_RE = re.compile(
-    r"\b(allume|éteins|étein[st]|ferme|ouvre|baisse|monte|règle|toggle|"
-    r"turn\s+on|turn\s+off|switch\s+on|switch\s+off)\b",
-    re.IGNORECASE,
-)
-_SPOTIFY_CONTROL_RE = re.compile(
-    r"\b(joue|mets?\s+en\s+pause|pause\s+(?:la\s+)?musique|chanson\s+suivante|"
-    r"passe\s+[àa]\s+la\s+suite|next\s+(?:song|track)|skip|"
-    r"reprends?(?:\s+la\s+musique)?|ajoute\s+[àa]\s+la\s+file)\b",
-    re.IGNORECASE,
-)
 
 
 class AlitaPersona(OlympusPersona):
@@ -77,18 +65,12 @@ class AlitaPersona(OlympusPersona):
             )
         )
         self.settings = settings
+        self.ollama.causality = CausalityClient(settings.asmo_redis_url, persona="alita")
         self.db = AlitaDbManager(settings.alita_db_path)
 
         self.weather = WeatherTool(settings.alita_weather_api_key, settings.alita_weather_city)
         self.stocks = StocksTool(self.db)
-        self.ha = HomeAssistantTool(settings.alita_ha_url, settings.alita_ha_token)
         self.web_search_tool = WebSearchTool(settings.alita_searxng_url)
-        self.spotify = SpotifyTool(
-            settings.alita_spotify_client_id,
-            settings.alita_spotify_client_secret,
-            settings.alita_spotify_redirect_uri,
-            self.db,
-        )
         self.memory = MemoryTool(self.db)
         self.ltm = LongTermMemory(self.db, self.ollama, settings.alita_embed_model)
         self.fetch_url = FetchUrlTool()
@@ -194,20 +176,6 @@ class AlitaPersona(OlympusPersona):
                 "Appelle reminders avec action='add' IMMÉDIATEMENT avec le contenu et la date si précisée.]"
             )
             reminders_injected.append("reminders_add")
-
-        if _HA_SERVICE_RE.search(content):
-            parts.append(
-                "[RAPPEL OUTIL : L'utilisateur demande de contrôler un appareil domotique. "
-                "Appelle call_ha_service IMMÉDIATEMENT. Ne pas décrire l'action sans l'exécuter.]"
-            )
-            reminders_injected.append("ha_service")
-
-        if _SPOTIFY_CONTROL_RE.search(content):
-            parts.append(
-                "[RAPPEL OUTIL : L'utilisateur demande de contrôler Spotify. "
-                "Appelle spotify_control IMMÉDIATEMENT avec la bonne action.]"
-            )
-            reminders_injected.append("spotify_control")
 
         if reminders_injected:
             logger.debug("tool_reminders_injected", tools=reminders_injected)
@@ -363,48 +331,6 @@ class AlitaPersona(OlympusPersona):
                     return (f"✅ Vente enregistrée — {symbol} ({lbl}) : -{shares:.0f} actions à {price:.2f}€. "
                             f"Restant : {new_shares:.0f} actions | PRU inchangé : {existing['avg_price']:.2f}€.")
             return f"❌ Action inconnue : {action}."
-
-        # --- Home Assistant ---
-        @reg.register(
-            "get_ha_info",
-            "Consulte Home Assistant en lecture.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["states", "entity", "sensors"]},
-                    "entity_id": {"type": "string"},
-                    "domain": {"type": "string"},
-                },
-                "required": ["action"],
-            },
-        )
-        async def get_ha_info(action: str, entity_id: str | None = None, domain: str | None = None) -> str:
-            if action == "states":
-                return await self.ha.get_ha_states(domain)
-            if action == "entity":
-                if not entity_id:
-                    return "❌ entity_id requis."
-                return await self.ha.get_ha_entity(entity_id)
-            if action == "sensors":
-                return await self.ha.get_ha_sensors_summary()
-            return f"❌ action inconnue : {action}."
-
-        @reg.register(
-            "call_ha_service",
-            "Exécute une action dans Home Assistant.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "domain": {"type": "string"},
-                    "service": {"type": "string"},
-                    "entity_id": {"type": "string"},
-                    "data": {"type": "object"},
-                },
-                "required": ["domain", "service", "entity_id"],
-            },
-        )
-        async def call_ha_service(domain: str, service: str, entity_id: str, data: dict | None = None) -> str:
-            return await self.ha.call_ha_service(domain, service, entity_id, data)
 
         # --- Web Search ---
         @reg.register(

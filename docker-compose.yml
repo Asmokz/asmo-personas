@@ -274,7 +274,7 @@ services:
       ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
       ASMO_LOG_JSON: "${ASMO_LOG_JSON:-false}"
     ports:
-      - "127.0.0.1:1966:1966"
+      - "1966:1966"
     volumes:
       - causality_data:/data
     deploy:

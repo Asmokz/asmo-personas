@@ -140,6 +140,7 @@ class APIEngine(ABC):
                         messages=list(history),
                         tools=tools,
                         system_prompt=system_prompt,
+                        conv_id=conv_id,
                     )
                 except Exception as exc:
                     err_msg = str(exc) or repr(exc) or type(exc).__name__
@@ -262,6 +263,7 @@ class APIEngine(ABC):
                 final = await self.ollama.chat(
                     messages=list(history),
                     system_prompt=system_prompt,
+                    conv_id=conv_id,
                 )
                 history.append({"role": "assistant", "content": final})
                 yield {"type": EVT_TOKEN, "content": final}
