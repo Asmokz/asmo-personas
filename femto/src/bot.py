@@ -6,6 +6,7 @@ from discord.ext import commands
 
 import structlog
 
+from asmo_commons.causality.client import CausalityClient
 from asmo_commons.config.settings import FemtoSettings
 from asmo_commons.discord.base_bot import BaseBot, send_long_message
 from asmo_commons.llm.ollama_client import OllamaClient
@@ -41,6 +42,7 @@ class FemtoBot(BaseBot):
             command_prefix="!",
         )
         self.settings = settings
+        self.ollama.causality = CausalityClient(settings.asmo_redis_url, persona="femto")
 
         # Tool infrastructure
         self._executor = CommandExecutor(default_timeout=settings.femto_cmd_timeout)

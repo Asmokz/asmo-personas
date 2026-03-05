@@ -187,6 +187,7 @@ class BaseBot(commands.Bot, ABC):
                         messages=list(history),
                         tools=tools,
                         system_prompt=system_prompt,
+                        conv_id=conv_id,
                     )
                 except Exception as exc:
                     logger.error("ollama_error", error=str(exc))
@@ -321,6 +322,7 @@ class BaseBot(commands.Bot, ABC):
                 final = await self.ollama.chat(
                     messages=list(history),
                     system_prompt=system_prompt,
+                    conv_id=conv_id,
                 )
                 await send_long_message(message.channel, final)
                 history.append({"role": "assistant", "content": final})

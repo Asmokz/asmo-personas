@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "causality"
+version = "0.1.0"
+description = "Causality — LLM observability service for ASMO personas"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "redis[hiredis]>=5.0",
+    "aiosqlite>=0.20",
+    "psutil>=5.9",
+    "pynvml>=11.5",
+    "structlog>=23.3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+import uuid
 from typing import Any, AsyncGenerator, Optional
 
 import aiohttp
@@ -41,6 +43,8 @@ class OllamaClient:
         self._retry_min_wait = retry_min_wait
         self._retry_max_wait = retry_max_wait
         self._session: Optional[aiohttp.ClientSession] = None
+        # Set by persona bots after construction — optional Causality middleware
+        self.causality: Any = None
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -112,21 +116,24 @@ class OllamaClient:
         self,
         messages: list[dict],
         system_prompt: Optional[str] = None,
+        conv_id: Optional[str] = None,
     ) -> str:
-        """Send a conversation to Ollama and return the assistant text.
-
-        Args:
-            messages: List of {"role": ..., "content": ...} dicts.
-            system_prompt: Optional system message prepended to messages.
-
-        Returns:
-            Assistant reply as a plain string.
-        """
+        """Send a conversation to Ollama and return the assistant text."""
         full_messages = _prepend_system(messages, system_prompt)
         payload = {"model": self.model, "messages": full_messages, "stream": False}
 
+        call_id = None
+        ts_start = time.time()
+        if self.causality:
+            call_id = str(uuid.uuid4())
+            self.causality.record_call_start(call_id, conv_id, self.model, full_messages, [])
+
         logger.debug("ollama_chat", model=self.model, msg_count=len(full_messages))
         data = await self._post_chat(payload)
+
+        if self.causality and call_id:
+            self.causality.record_call_end(call_id, ts_start, data)
+
         return data["message"]["content"]
 
     async def chat_with_tools(
@@ -134,6 +141,7 @@ class OllamaClient:
         messages: list[dict],
         tools: list[dict],
         system_prompt: Optional[str] = None,
+        conv_id: Optional[str] = None,
     ) -> dict:
         """Send a conversation with tool definitions to Ollama.
 
@@ -151,6 +159,13 @@ class OllamaClient:
             "stream": False,
         }
 
+        call_id = None
+        ts_start = time.time()
+        if self.causality:
+            call_id = str(uuid.uuid4())
+            tool_names = [t.get("function", {}).get("name", "") for t in tools]
+            self.causality.record_call_start(call_id, conv_id, self.model, full_messages, tool_names)
+
         logger.debug(
             "ollama_chat_with_tools",
             model=self.model,
@@ -158,6 +173,10 @@ class OllamaClient:
             tool_count=len(tools),
         )
         data = await self._post_chat(payload)
+
+        if self.causality and call_id:
+            self.causality.record_call_end(call_id, ts_start, data)
+
         return data["message"]
 
     async def chat_stream(

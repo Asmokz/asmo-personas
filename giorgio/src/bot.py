@@ -10,6 +10,7 @@ from discord.ext import commands
 from discord.ui import Button, View
 import structlog
 
+from asmo_commons.causality.client import CausalityClient
 from asmo_commons.config.settings import GiorgioSettings
 from asmo_commons.discord.base_bot import BaseBot, send_long_message
 from asmo_commons.llm.ollama_client import OllamaClient
@@ -114,6 +115,7 @@ class GiorgioBot(BaseBot):
             command_prefix="!",
         )
         self.settings = settings
+        self.ollama.causality = CausalityClient(settings.asmo_redis_url, persona="giorgio")
         self._channel_id = settings.giorgio_channel_id
         self._notification_channel: Optional[discord.abc.Messageable] = None
 

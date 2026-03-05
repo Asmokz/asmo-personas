@@ -116,14 +116,6 @@ services:
       ALITA_WEATHER_CITY: "${ALITA_WEATHER_CITY:-Marseille,FR}"
       # Stocks
       ALITA_PORTFOLIO: "${ALITA_PORTFOLIO:-[]}"
-      # Home Assistant
-      ALITA_HA_URL: "${ALITA_HA_URL:-http://homeassistant:8123}"
-      ALITA_HA_TOKEN: "${ALITA_HA_TOKEN:-}"
-      # Spotify
-      ALITA_SPOTIFY_CLIENT_ID: "${ALITA_SPOTIFY_CLIENT_ID:-}"
-      ALITA_SPOTIFY_CLIENT_SECRET: "${ALITA_SPOTIFY_CLIENT_SECRET:-}"
-      ALITA_SPOTIFY_REDIRECT_URI: "${ALITA_SPOTIFY_REDIRECT_URI:-http://localhost:8888/spotify/callback}"
-      ALITA_SPOTIFY_PORT: "${ALITA_SPOTIFY_PORT:-8888}"
       # SearXNG
       ALITA_SEARXNG_URL: "${ALITA_SEARXNG_URL:-http://searxng:8080}"
       # Database
@@ -136,8 +128,6 @@ services:
       ALITA_ANYTYPE_SPACE_ID: "${ALITA_ANYTYPE_SPACE_ID:-}"
     volumes:
       - alita_data:/data
-    ports:
-      - "127.0.0.1:8888:8888"   # Spotify OAuth callback (local only)
     depends_on:
       redis:
         condition: service_healthy
@@ -270,10 +260,48 @@ services:
       retries: 3
       start_period: 60s
 
+  # ── CAUSALITY ─────────────────────────────────────────────────────────────
+  causality:
+    build:
+      context: .
+      dockerfile: causality/Dockerfile
+    container_name: asmo-causality
+    environment:
+      ASMO_REDIS_URL: "redis://redis:6379"
+      CAUSALITY_DB_PATH: "/data/causality.db"
+      CAUSALITY_RETENTION_DAYS: "${CAUSALITY_RETENTION_DAYS:-7}"
+      CAUSALITY_PORT: "1966"
+      ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
+      ASMO_LOG_JSON: "${ASMO_LOG_JSON:-false}"
+    ports:
+      - "127.0.0.1:1966:1966"
+    volumes:
+      - causality_data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, utility]
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:1966/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
 volumes:
   redis_data:
   femto_data:
   alita_data:
+  causality_data:
 
 networks:
   # Attach Giorgio to the existing MariaDB network without migrating data

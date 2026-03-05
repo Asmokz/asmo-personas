@@ -31,6 +31,7 @@ import discord
 import structlog
 from discord.ext import commands
 
+from asmo_commons.causality.client import CausalityClient
 from asmo_commons.config.settings import AlitaSettings
 from asmo_commons.discord.base_bot import BaseBot, send_long_message
 from asmo_commons.llm.ollama_client import OllamaClient
@@ -68,6 +69,7 @@ class AlitaBot(BaseBot):
             command_prefix="!",
         )
         self.settings = settings
+        self.ollama.causality = CausalityClient(settings.asmo_redis_url, persona="alita")
 
         # Persistent memory
         self.db = AlitaDbManager(settings.alita_db_path)
@@ -642,6 +644,8 @@ class AlitaBot(BaseBot):
     async def close(self) -> None:
         self._scheduler.stop()
         await self._subscriber.stop()
+        if self.ollama.causality:
+            await self.ollama.causality.close()
         await self.ollama.close()
         await super().close()
 
