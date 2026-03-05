@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import structlog
 
+from asmo_commons.causality.client import CausalityClient
 from asmo_commons.config.settings import FemtoSettings
 from asmo_commons.llm.ollama_client import OllamaClient
 from asmo_commons.tools.executor import CommandExecutor
@@ -41,6 +42,7 @@ class FemtoPersona(OlympusPersona):
             )
         )
         self.settings = settings
+        self.ollama.causality = CausalityClient(settings.asmo_redis_url, persona="femto")
         self._executor = CommandExecutor(default_timeout=settings.femto_cmd_timeout)
         self.system_metrics = SystemMetrics(self._executor)
         self.docker_status = DockerStatus(max_log_lines=settings.femto_max_log_lines)

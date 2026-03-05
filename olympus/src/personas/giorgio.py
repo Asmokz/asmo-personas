@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import structlog
 
+from asmo_commons.causality.client import CausalityClient
 from asmo_commons.config.settings import GiorgioSettings
 from asmo_commons.llm.ollama_client import OllamaClient
 from asmo_commons.tools.registry import ToolRegistry
@@ -44,6 +45,7 @@ class GiorgioPersona(OlympusPersona):
             )
         )
         self.settings = settings
+        self.ollama.causality = CausalityClient(settings.asmo_redis_url, persona="giorgio")
         self.jellyfin = JellyfinClient(
             settings.giorgio_jellyfin_url,
             settings.giorgio_jellyfin_api_key,
