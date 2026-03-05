@@ -285,7 +285,7 @@ class BaseBot(commands.Bot, ABC):
                 history.append(
                     {
                         "role": "assistant",
-                        "content": response_msg.get("content", ""),
+                        "content": response_msg.get("content") or "",
                         "tool_calls": tool_calls,
                     }
                 )

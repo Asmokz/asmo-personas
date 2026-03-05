@@ -31,7 +31,7 @@ async def _generate_title(db, conv_id: str, persona, user_msg: str) -> None:
             async with session.post(
                 f"{persona.ollama.base_url}/api/chat",
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=30),
+                timeout=aiohttp.ClientTimeout(total=90),
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()

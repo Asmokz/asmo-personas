@@ -148,7 +148,7 @@ class OlympusDB:
 
         result = []
         for role, content, tool_calls_json, tool_call_id in rows:
-            msg: dict = {"role": role, "content": content}
+            msg: dict = {"role": role, "content": content or ""}
             if tool_calls_json:
                 try:
                     tool_calls = json.loads(tool_calls_json)
@@ -174,7 +174,7 @@ class OlympusDB:
         async with aiosqlite.connect(self._db_path) as db:
             for msg in messages:
                 role = msg.get("role", "user")
-                content = msg.get("content", "")
+                content = msg.get("content") or ""
                 tool_calls = msg.get("tool_calls")
                 tool_call_id = msg.get("tool_call_id")
                 await db.execute(
