@@ -1,53 +1,204 @@
 # ASMO Personas
 
-Trois personas IA autonomes pour le homelab **ASMO-01**, exposés via une API HTTP/WebSocket et une PWA Vue.js.
+Quatre services IA autonomes pour le homelab **ASMO-01** : trois personas conversationnels, une gateway API/PWA, et un middleware d'observabilité LLM.
 
-| Persona | Rôle | Statut |
-|---------|------|--------|
-| **FEMTO** | Monitoring système & Docker | ✅ Fonctionnel |
-| **GIORGIO** | Médias, notations Jellyfin & recommandations | ✅ Fonctionnel |
-| **ALITA** | Assistante personnelle & briefing matinal | ✅ Fonctionnel |
-| **OLYMPUS** | Gateway API + PWA Vue.js (v0.2.0) | ✅ Fonctionnel |
+| Service | Rôle | Port | Statut |
+|---------|------|------|--------|
+| **FEMTO** | Monitoring système & Docker | Discord | ✅ Fonctionnel |
+| **GIORGIO** | Médias, notations Jellyfin & recommandations | Discord + `:5555` | ✅ Fonctionnel |
+| **ALITA** | Assistante personnelle & briefing matinal | Discord + Olympus | ✅ Fonctionnel |
+| **OLYMPUS** | Gateway API + PWA Vue.js | `:8484` | ✅ Fonctionnel |
+| **CAUSALITY** | Observabilité LLM (payloads, latences, GPU) | `:1966` | ✅ Fonctionnel |
+
+---
 
 ## Architecture
 
 ```
 asmo-personas/
-├── commons/              # Lib partagée (OllamaClient, APIEngine, ToolRegistry, RedisPubSub…)
-├── femto/                # Persona monitoring (Discord + Olympus)
-├── giorgio/              # Persona média (Discord + Olympus)
-├── alita/                # Persona assistante personnelle (Discord + Olympus)
+├── commons/              # Lib partagée
+│   └── asmo_commons/
+│       ├── api/engine.py         # APIEngine — boucle LLM+tools sans Discord
+│       ├── causality/client.py   # CausalityClient — fire-and-forget Redis publisher
+│       ├── config/settings.py    # Pydantic settings (Femto/Giorgio/AlitaSettings)
+│       ├── discord/base_bot.py   # BaseBot — boucle LLM+tools Discord
+│       ├── llm/ollama_client.py  # OllamaClient async avec retry
+│       ├── pubsub/redis_client.py # RedisPubSub (asmo.alerts.system, asmo.media.rated)
+│       └── tools/registry.py    # @registry.register() decorator pattern
+├── femto/                # Persona monitoring (Discord)
+├── giorgio/              # Persona média (Discord + webhook Jellyfin)
+├── alita/                # Persona assistante (Discord + Olympus)
 │   └── scripts/
 │       └── label_training.py   # Labelling interactif des échanges (SFT/DPO)
 ├── olympus/              # Gateway HTTP/WebSocket + PWA Vue.js
-│   ├── Dockerfile
 │   ├── src/
-│   │   ├── main.py       # FastAPI app
-│   │   ├── routers/      # chat, conversations, personas, feedback, voice
-│   │   ├── personas/     # AlitaPersona, FemtoPersona, GiorgioPersona (wrappent les tools existants)
-│   │   ├── db/           # OlympusDB (conversations + historique SQLite)
-│   │   └── stt/          # faster-whisper (transcription vocale, CPU/int8)
-│   └── frontend/         # Vue 3 + Vite + Pinia + PWA (dark/light mode)
-├── scripts/
-│   └── init_redis.py
+│   │   ├── main.py              # FastAPI app (lifespan, CORS, static)
+│   │   ├── routers/             # chat, conversations, personas, feedback, voice
+│   │   ├── personas/            # AlitaPersona, FemtoPersona, GiorgioPersona
+│   │   ├── db/                  # OlympusDB (conversations + historique SQLite)
+│   │   └── stt/                 # faster-whisper (transcription vocale CPU/int8)
+│   └── frontend/                # Vue 3 + Vite + Pinia + PWA (dark/light mode)
+├── causality/            # Middleware d'observabilité LLM
+│   └── src/
+│       ├── main.py              # FastAPI app (API + UI statique)
+│       ├── subscriber.py        # Listener Redis asmo.causality
+│       ├── hardware.py          # Sampler GPU (pynvml) + swap (psutil)
+│       ├── db/manager.py        # SQLite rolling window (7 jours par défaut)
+│       └── static/index.html   # SPA dark/rouge — liste des échanges LLM
 ├── docker-compose.yml
 └── .env.example
 ```
 
-**Stack** : Python 3.11 · FastAPI · Vue 3 · Vite · Pinia · Ollama · Redis · Docker Compose · aiosqlite · SQLAlchemy · yfinance · faster-whisper · numpy
+**Stack** : Python 3.11 · FastAPI · Vue 3 · Vite · Pinia · Ollama · Redis · Docker Compose · aiosqlite · yfinance · faster-whisper · numpy · pynvml · psutil
 
-### Flux inter-personas (Redis pub/sub)
+### Flux inter-services (Redis pub/sub)
 
 ```
-FEMTO ──► asmo.alerts.system ──► ALITA (notification immédiate si critique)
-GIORGIO ──► asmo.media.rated  ──► ALITA (bufferisé pour le briefing)
+FEMTO  ──► asmo.alerts.system  ──► ALITA (notification si critique)
+GIORGIO ──► asmo.media.rated   ──► ALITA (bufferisé pour le briefing)
+
+OllamaClient ──► asmo.causality ──► CAUSALITY (chaque appel LLM, fire-and-forget)
 ```
 
 ---
 
-## Olympus — Gateway API + PWA (v0.2.0)
+## Flow end-to-end — ALITA via Olympus
 
-Olympus est le point d'entrée HTTP/WebSocket pour les trois personas. Il remplace la couche Discord par une interface web PWA accessible depuis n'importe quel navigateur.
+Ce schéma décrit le trajet complet d'un message utilisateur sur la PWA jusqu'à la réponse streamée, avec tous les effets de bord asynchrones.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  UTILISATEUR (navigateur)                                           │
+│                                                                     │
+│  1. Saisit un message dans la PWA Vue 3                             │
+│  2. PWA ouvre WS → ws://olympus:8484/api/chat/stream               │
+│  3. PWA envoie :                                                    │
+│     { conv_id, persona_id: "alita", content, images? }             │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │ WebSocket
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  OLYMPUS (FastAPI :8484)   routers/chat.py                         │
+│                                                                     │
+│  4. Valide conv_id + persona_id                                     │
+│  5. OlympusDB.get_history(conv_id, limit=20)                       │
+│     → charge les 20 derniers messages en ordre chronologique       │
+│     → supprime les messages orphelins au début (non-user)          │
+│     → content NULL → "" (protection anti-HTTP 500 Ollama)         │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │ appel Python
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  AlitaPersona._get_context_prefix(conv_id, content)                │
+│                                                                     │
+│  6a. LTM RAG — LongTermMemory.search_relevant()                    │
+│      - Embed le message via nomic-embed-text (/api/embed)          │
+│      - Cosine similarity contre conversation_vectors (alita.db)    │
+│      - Seuil 0.72, top-3 échanges pertinents des sessions passées  │
+│      - Si trouvé → préfixe "[Mémoire long terme] ..."              │
+│                                                                     │
+│  6b. URL auto-fetch — FetchUrlTool                                 │
+│      - Regex détecte les URLs dans le message (max 2)              │
+│      - Fetch via Jina.ai Reader → extrait le texte                 │
+│      - Préfixe "[Contenu récupéré depuis ...]"                     │
+│                                                                     │
+│  6c. Tool hints — injection de rappels ciblés                      │
+│      - "souviens-toi / mémorise" → [RAPPEL : appelle memory]       │
+│      - "rappelle-moi" → [RAPPEL : appelle reminders]               │
+│      - "anytype / note ça" → [RAPPEL : appelle anytype_create_note]│
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │ context_prefix + user_content
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  APIEngine._run()   commons/asmo_commons/api/engine.py             │
+│                                                                     │
+│  7. Construit le message user : { context_prefix + content }       │
+│  8. Appende à history                                               │
+│                                                                     │
+│  ┌── BOUCLE OUTIL (max 5 itérations) ────────────────────────────┐ │
+│  │                                                                │ │
+│  │  9. CausalityClient.record_call_start()  ◄─── fire-and-forget │ │
+│  │     PUBLISH asmo.causality {call_id, conv_id, model,          │ │
+│  │                              messages, tool_names, ts_start}  │ │
+│  │                                                                │ │
+│  │  10. OllamaClient.chat_with_tools()                           │ │
+│  │      POST /api/chat → Ollama (ministral-3:14b)                │ │
+│  │      payload : { model, messages, tools: [11 defs], stream:F }│ │
+│  │                                                                │ │
+│  │      ┌── Ollama répond ──────────────────────────────────────┐│ │
+│  │      │                                                        ││ │
+│  │      │  CAS A — tool_calls présents :                        ││ │
+│  │      │    - Yield { type: "tool_start", name, args } → WS   ││ │
+│  │      │    - registry.execute(fn_name, fn_args)               ││ │
+│  │      │      (weather / stocks / web_search / memory /        ││ │
+│  │      │       reminders / anytype / get_stock_quote / ...)    ││ │
+│  │      │    - Yield { type: "tool_done", name, result } → WS  ││ │
+│  │      │    - Appende tool result à history                    ││ │
+│  │      │    - record_call_end() → fire-and-forget              ││ │
+│  │      │    → retour au début de la boucle                     ││ │
+│  │      │                                                        ││ │
+│  │      │  CAS B — réponse texte (pas d'outils) :               ││ │
+│  │      │    - Yield { type: "token", content } → WS            ││ │
+│  │      │    - Yield { type: "done", entry_id } → WS            ││ │
+│  │      │    - record_call_end() → fire-and-forget              ││ │
+│  │      │    - _on_exchange_complete() → TrainingLogger          ││ │
+│  │      │      (fire-and-forget → alita_training.db)            ││ │
+│  │      │    → sort de la boucle                                ││ │
+│  │      └────────────────────────────────────────────────────────┘│ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │ retour au router
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  OLYMPUS router — effets de bord post-échange                      │
+│                                                                     │
+│  11. OlympusDB.append_messages(conv_id, new_messages)              │
+│      → persiste user + assistant + tool messages en SQLite         │
+│                                                                     │
+│  12. asyncio.create_task(embed_exchange())  ◄── fire-and-forget    │
+│      → LongTermMemory.embed_exchange()                              │
+│      → nomic-embed-text (/api/embed) → vecteur 768 dim             │
+│      → INSERT INTO conversation_vectors (alita.db)                 │
+│      (utilisé pour le RAG des prochaines sessions)                 │
+│                                                                     │
+│  13. asyncio.create_task(_generate_title())  ◄── fire-and-forget   │
+│      → si première réponse de la conv (title IS NULL)              │
+│      → POST /api/chat Ollama, timeout 90s, num_predict=12          │
+│      → OlympusDB.update_title(conv_id, title)                      │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │ parallèle
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  CAUSALITY (FastAPI :1966)                                          │
+│                                                                     │
+│  9'. subscriber.py reçoit asmo.causality call_start                │
+│      → INSERT into calls (pending)                                  │
+│                                                                     │
+│  9''. subscriber.py reçoit asmo.causality call_end                 │
+│       → HardwareSampler.sample() : GPU util/temp/VRAM (pynvml)    │
+│                                     + swap (psutil)                │
+│       → UPDATE calls SET duration_ms, tok_s, tokens, gpu_*        │
+│       → cleanup_old() si rolling window dépassée                   │
+│                                                                     │
+│  UI : GET /  → SPA dark/rouge                                      │
+│       GET /api/exchanges → JSON list des appels LLM (7j)           │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Récapitulatif des délais asynchrones
+
+| Opération | Déclencheur | Délai typique |
+|-----------|-------------|---------------|
+| Causality record | Chaque appel Ollama | < 1 ms (Redis fire-and-forget) |
+| LTM embed | Fin d'échange | 1–3 s (Ollama embed en arrière-plan) |
+| Title generation | Première réponse | 2–10 s (90s timeout) |
+| Training log | Fin d'échange | < 1 ms (SQLite async) |
+
+---
+
+## Olympus — Gateway API + PWA
+
+Olympus est le point d'entrée HTTP/WebSocket pour les trois personas. Il expose aussi l'interface PWA accessible depuis le LAN.
 
 ### API REST
 
@@ -85,8 +236,6 @@ Le serveur retourne des événements JSON :
 
 ### Frontend PWA
 
-La PWA Vue 3 est buildée séparément et servie par Olympus comme fichiers statiques :
-
 ```bash
 cd olympus/frontend
 npm install
@@ -121,7 +270,43 @@ curl http://localhost:8484/health
 curl http://localhost:8484/api/personas
 ```
 
-Olympus est accessible sur `http://localhost:8484`. La PWA se connecte en WebSocket sur la même URL.
+---
+
+## Causality — Observabilité LLM
+
+Causality est un service autonome qui capture chaque appel Ollama de tous les personas via Redis, sans bloquer le chemin critique.
+
+### Architecture
+
+```
+OllamaClient (dans chaque persona)
+  │  record_call_start() → PUBLISH asmo.causality {call_id, model, messages, tools}
+  │  record_call_end()   → PUBLISH asmo.causality {call_id, duration_ms, tokens}
+  │
+  ▼  (Redis pub/sub, fire-and-forget)
+  │
+CausalitySubscriber (causality/src/subscriber.py)
+  │  reçoit les événements
+  │  appelle HardwareSampler à la fin d'un appel :
+  │    - GPU : utilisation, température, VRAM (pynvml — RTX 3060)
+  │    - swap : utilisé/total (psutil)
+  │
+  ▼
+SQLite /data/causality.db  (rolling window CAUSALITY_RETENTION_DAYS, défaut 7j)
+  │
+FastAPI :1966
+  GET /              → SPA dark/rouge (auto-refresh 30s, lignes expandables)
+  GET /api/exchanges → JSON [{call_id, persona, model, duration_ms, tok_s, ...}]
+  GET /health        → {"status": "ok"}
+```
+
+### Variables d'environnement
+
+```env
+CAUSALITY_RETENTION_DAYS=7   # durée de rétention des métriques
+CAUSALITY_PORT=1966
+CAUSALITY_DB_PATH=/data/causality.db
+```
 
 ---
 
@@ -130,7 +315,7 @@ Olympus est accessible sur `http://localhost:8484`. La PWA se connecte en WebSoc
 - Docker + Docker Compose v2
 - Ollama installé sur l'hôte :
   ```bash
-  ollama pull ministral-3:14b   # tous les personas (FEMTO, GIORGIO, ALITA)
+  ollama pull ministral-3:14b   # tous les personas
   ollama pull nomic-embed-text  # ALITA (LTM RAG) + GIORGIO (index sémantique)
   ```
 - Pour les bots Discord : trois applications Discord créées sur <https://discord.com/developers/applications>
@@ -175,24 +360,21 @@ python scripts/init_redis.py
 docker compose up -d
 
 # Vérifier les logs
-docker compose logs -f femto
 docker compose logs -f alita
-docker compose logs -f giorgio
 docker compose logs -f olympus
+docker compose logs -f causality
 ```
 
-### 5. Démarrer uniquement Olympus (sans bots Discord)
+### 5. Démarrer uniquement Olympus + Causality (sans bots Discord)
 
 ```bash
-# Build le frontend (optionnel)
 cd olympus/frontend && npm install && npm run build && cd -
-
-docker compose up -d redis olympus
-docker compose logs -f olympus
-# Interface disponible sur http://localhost:8484
+docker compose up -d redis olympus causality
+# Interface : http://localhost:8484
+# Observabilité : http://localhost:1966
 ```
 
-### 6. Démarrer uniquement FEMTO (recommandé pour tester le monitoring)
+### 6. Démarrer uniquement FEMTO
 
 ```bash
 docker compose up -d redis femto
@@ -203,7 +385,7 @@ docker compose logs -f femto
 
 ## Utilisation de FEMTO
 
-### Messages naturels (mentionner le bot)
+### Messages naturels
 
 ```
 @FEMTO quelle est la place disque ?
@@ -232,7 +414,7 @@ Il publie également une alerte sur Redis (`asmo.alerts.system`) quand un disque
 
 ## Utilisation de GIORGIO
 
-GIORGIO gère les notifications de fin de visionnage Jellyfin, les notations et les recommandations culturelles. Il partage la base MariaDB de l'ancien conteneur `giorgio-bot`.
+GIORGIO gère les notifications de fin de visionnage Jellyfin, les notations et les recommandations culturelles.
 
 ### Canal dédié
 
@@ -240,17 +422,7 @@ GIORGIO répond à **tous les messages** sur `GIORGIO_RECOMMENDATION_CHANNEL_ID`
 
 ### Notifications automatiques (webhook Jellyfin)
 
-Quand un utilisateur configuré (`GIORGIO_NOTIFICATION_USERS`) termine un film ou un épisode, Giorgio poste automatiquement un message de notation dans le canal `GIORGIO_CHANNEL_ID` :
-
-```
-🎬 Bellissimo! asmo vient de terminer Dune (2021)!
-
-Alors, caro mio, c'était comment? Note cette œuvre de 1 à 10!
-[1][2][3][4][5]
-[6][7][8][9][10]
-```
-
-Giorgio réagit différemment selon chaque note (de *"Madonna! quelle horreur"* à *"Perfetto! chef-d'œuvre absolu"*). Chaque notation est également publiée sur Redis (`asmo.media.rated`) pour être incluse dans le briefing ALITA.
+Quand un utilisateur configuré (`GIORGIO_NOTIFICATION_USERS`) termine un film ou un épisode, Giorgio poste automatiquement un message de notation dans le canal `GIORGIO_CHANNEL_ID`.
 
 Configurer Jellyfin pour envoyer les webhooks vers : `http://<asmo-01>:5555/api/webhook`
 
@@ -261,7 +433,6 @@ quels sont mes films les mieux notés ?
 suggère-moi quelque chose pour une après-midi ensoleillée
 qu'est-ce que j'ai regardé récemment ?
 combien de films dans la bibliothèque ?
-c'est quoi la série Les Sentinelles ?
 ```
 
 ### Commandes préfixées
@@ -270,10 +441,10 @@ c'est quoi la série Les Sentinelles ?
 |----------|-------------|
 | `!stats` | Statistiques globales : catalogue, visionnages, note moyenne |
 | `!toprated [n]` | Top *n* contenus les mieux notés (défaut : 10) |
-| `!mostwatched [n]` | Top *n* films/séries les plus vus, épisodes agrégés par série |
-| `!recent [n]` | *n* derniers visionnages avec notes (défaut : 10) |
+| `!mostwatched [n]` | Top *n* films/séries les plus vus |
+| `!recent [n]` | *n* derniers visionnages avec notes |
 
-### Outils LLM disponibles
+### Outils LLM
 
 | Outil | Description |
 |-------|-------------|
@@ -283,26 +454,23 @@ c'est quoi la série Les Sentinelles ?
 | `get_global_stats` | Statistiques globales du catalogue |
 | `get_recent_media` | Ajouts récents dans Jellyfin |
 | `search_media` | Recherche par titre exact dans Jellyfin |
-| `browse_library_by_genre` | Parcourt la bibliothèque par genre(s) — résultats réels, pas d'hallucination |
-| `semantic_search_library` | Recherche sémantique par description libre (humeur, thème, ambiance) via RAG |
-| `get_recommendation` | Recommandation personnalisée enrichie par le profil de goût (genres aimés/détestés) |
-| `web_search` | Recherche web SearXNG — dernier recours si rien dans Jellyfin |
+| `browse_library_by_genre` | Parcourt la bibliothèque par genre(s) |
+| `semantic_search_library` | Recherche sémantique par description libre (RAG) |
+| `get_recommendation` | Recommandation personnalisée via profil de goût |
+| `web_search` | Recherche web SearXNG — dernier recours |
 
 ### Index sémantique (RAG)
 
-Au démarrage, Giorgio indexe automatiquement toute la bibliothèque Jellyfin dans un index vectoriel SQLite (`/data/giorgio_vectors.db`) via `nomic-embed-text`. Le sync est incrémental : seuls les nouveaux contenus sont ré-embedés.
-
-La recherche sémantique permet des requêtes comme *"film feel-good pour après-midi ensoleillée"* ou *"thriller psychologique oppressant"* sans nécessiter de titre exact.
+Au démarrage, Giorgio indexe automatiquement toute la bibliothèque Jellyfin dans un index vectoriel SQLite (`/data/giorgio_vectors.db`) via `nomic-embed-text`. Le sync est incrémental.
 
 ### API stats (HTTP)
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/stats` | Statistiques globales JSON |
-| `GET /api/stats/most-watched?limit=10` | Plus vus (séries agrégées) |
-| `GET /api/stats/top-rated?limit=10&min_ratings=1` | Mieux notés |
+| `GET /api/stats/most-watched?limit=10` | Plus vus |
+| `GET /api/stats/top-rated?limit=10` | Mieux notés |
 | `GET /api/stats/recent?limit=10` | Activité récente |
-| `GET /api/stats/user/<jellyfin_id>` | Stats d'un utilisateur |
 | `POST /api/webhook` | Réception des événements Jellyfin |
 
 ---
@@ -318,7 +486,6 @@ Chaque jour ouvré à l'heure configurée (défaut : 7h00), ALITA collecte en pa
 - **Météo** actuelle + prévisions 3 jours
 - **Score moto** (analyse des conditions 8h–19h : pluie rédhibitoire, vent, froid, brouillard)
 - **Portefeuille boursier** : cours en temps réel, P&L par position, total
-- **Capteurs Home Assistant** : température, humidité, énergie
 - **Rappels** en attente
 - **Alertes FEMTO** des dernières heures (via Redis)
 
@@ -326,20 +493,17 @@ Le tout est synthétisé par le LLM en un briefing naturel et personnalisé.
 
 Pour forcer un briefing immédiat : `!briefing`
 
-### Messages naturels (sur le canal dédié ou en mention)
+### Messages naturels
 
 ```
 c'est bon pour la moto aujourd'hui ?
 comment se porte mon portfolio ?
 je viens de vendre 1 action AI.PA à 179.48€
-éteins les lumières du salon
-mets de la musique
 cherche les dernières news sur l'IA
 rappelle-moi de faire X demain matin
 souviens-toi que j'aime le jazz
+note dans anytype : réunion jeudi à 14h
 ```
-
-ALITA utilise ses outils automatiquement selon le contexte — pas besoin de formuler une requête explicite.
 
 ### Commandes préfixées
 
@@ -348,27 +512,27 @@ ALITA utilise ses outils automatiquement selon le contexte — pas besoin de for
 | `!briefing` | Génère et poste immédiatement le briefing complet |
 | `!rappels` | Liste les rappels en attente |
 | `!prefs` | Liste les préférences mémorisées |
-| `!spotify-auth` | Génère l'URL d'authentification Spotify (à faire une seule fois) |
 
-### Outils disponibles (15 outils consolidés)
+### Outils disponibles (11 outils)
 
 | Outil | Description |
 |-------|-------------|
 | `get_current_weather` | Météo actuelle (OpenWeatherMap) |
 | `get_weather_forecast` | Prévisions 1–5 jours |
 | `should_i_ride` | Score moto 0–10 basé sur les conditions 8h–19h |
-| `get_portfolio_summary` | P&L complet du portefeuille (depuis la DB SQLite) |
+| `get_portfolio_info` | P&L complet du portefeuille (depuis la DB SQLite) |
 | `get_stock_quote` | Cours d'une action individuelle |
-| `update_portfolio_position` | Achat / vente / correction manuelle d'une position (persisté en DB) |
-| `get_ha_info` | Lit Home Assistant : `states` (liste entités), `entity` (détail), `sensors` (résumé capteurs) |
-| `call_ha_service` | Exécute un service HA (turn_on, turn_off, toggle, scene…) |
-| `web_search` | Recherche web via SearXNG (pour les questions d'actualité) |
-| `get_spotify_info` | Lit Spotify : `now_playing` (en cours), `recent_tracks` (historique), `search` (recherche) |
-| `spotify_control` | Contrôle Spotify : `play` / `pause` / `next` / `previous` / `queue` |
-| `memory` | Mémoire persistante : `remember` (mémoriser) / `recall` (récupérer) / `list` (tout lister) |
-| `reminders` | Rappels : `add` (créer) / `list` (lister) / `complete` (terminer) |
-| `anytype_create_note` | Crée une note, page ou mémo dans Anytype (base de connaissance personnelle) |
-| `anytype_read` | Lit Anytype : `search` (chercher) / `get` (lire un objet) / `list` (lister les récents) |
+| `update_portfolio_position` | Achat / vente / correction manuelle d'une position |
+| `web_search` | Recherche web via SearXNG |
+| `memory` | Mémoire persistante : `remember` / `recall` / `list` |
+| `reminders` | Rappels : `add` / `list` / `complete` |
+| `anytype_create_note` | Crée une note, page ou mémo dans Anytype |
+| `anytype_read` | Lit Anytype : `search` / `get` / `list` |
+
+**Fonctionnalités automatiques** (pas des outils — s'activent avant l'appel LLM) :
+- **URL auto-fetch** : Jina.ai Reader, max 2 URLs détectées dans le message
+- **LTM RAG** : cosine similarity sur les échanges passés (seuil 0.72, top-3)
+- **Tool hints** : injection de rappels ciblés selon les patterns détectés dans le message
 
 ### Portefeuille boursier
 
@@ -382,72 +546,49 @@ corrige ma position AIR.PA : 3 actions à 186€ de PRU
 
 **Migration** : si `ALITA_PORTFOLIO` est défini dans `.env`, les positions sont importées automatiquement dans la DB au premier démarrage (opération unique).
 
-Fonctionne avec tous les tickers Yahoo Finance (actions US, françaises `.PA`, ETFs…).
-
-### Configurer Home Assistant
-
-1. Dans HA : **Profil → Jetons d'accès longue durée → Créer un token**
-2. Renseigner dans `.env` :
-   ```env
-   ALITA_HA_URL=http://homeassistant:8123
-   ALITA_HA_TOKEN=eyJ...
-   ```
-
-Domaines autorisés pour `call_ha_service` : `light`, `switch`, `scene`, `climate`, `input_boolean`, `script`, `automation`.
-
 ### Configurer Anytype
 
 1. Démarrer le serveur Anytype local (`anytype-heart` ou desktop avec API activée)
-2. Récupérer la clé API et l'ID d'espace dans les paramètres Anytype
-3. Renseigner dans `.env` :
+2. Renseigner dans `.env` :
    ```env
    ALITA_ANYTYPE_URL=http://127.0.0.1:31012
    ALITA_ANYTYPE_API_KEY=xxx
    ALITA_ANYTYPE_SPACE_ID=xxx
    ```
 
-### Configurer Spotify
-
-L'authentification Spotify nécessite un flow OAuth2 initial (une seule fois) :
-
-1. Créer une application sur <https://developer.spotify.com/dashboard>
-2. Ajouter `http://localhost:8888/spotify/callback` dans les **Redirect URIs**
-3. Renseigner dans `.env` :
-   ```env
-   ALITA_SPOTIFY_CLIENT_ID=xxx
-   ALITA_SPOTIFY_CLIENT_SECRET=xxx
-   ```
-4. Sur Discord : taper `!spotify-auth` → ALITA génère une URL d'autorisation
-5. Visiter l'URL, autoriser l'accès → redirection vers `localhost:8888/spotify/callback`
-6. Le refresh token est sauvegardé automatiquement en base SQLite
-
-Le token est renouvelé automatiquement à chaque démarrage.
-
 ### Mémoire persistante
-
-ALITA maintient deux bases SQLite :
 
 **`/data/alita.db`** — base opérationnelle :
 - **Préférences** : clé/valeur persistantes entre les sessions, injectées dans le system prompt
 - **Portefeuille boursier** : positions avec quantités et PRU
 - **Rappels** : avec date d'échéance optionnelle
-- **Mémoire long terme (LTM)** : embeddings des échanges passés (`nomic-embed-text`, 768 dim) pour enrichir le contexte par similarité cosinus (seuil 0.72, top-3)
+- **LTM (Long-Term Memory)** : embeddings des échanges passés (`nomic-embed-text`, 768 dim) pour enrichir le contexte par similarité cosinus (seuil 0.72, top-3)
 
 **`/data/alita_training.db`** — collecte de données d'entraînement :
 - Capture automatique de chaque échange complet (format Mistral chat + méta)
 - Champ `quality` (NULL / `good` / `bad`) pour le labelling SFT/DPO
-- Champ `correction` pour les paires DPO (réponse préférée vs rejetée)
+- Champ `correction` pour les paires DPO
 - Script de labelling interactif : `docker exec -it asmo-alita python /app/scripts/label_training.py`
-
-**URLs** : auto-fetchées depuis le message (Jina.ai Reader, max 2) avant l'appel LLM, sans passer par la sélection d'outils.
 
 ---
 
 ## Configuration avancée
 
+### Modifier le modèle LLM
+
+```bash
+# .env
+ASMO_OLLAMA_MODEL=ministral-3:14b
+ALITA_OLLAMA_MODEL=ministral-3:14b
+GIORGIO_EMBED_MODEL=nomic-embed-text
+ALITA_EMBED_MODEL=nomic-embed-text
+```
+
+Modèles recommandés avec tool calling : `ministral-3:14b`, `llama3.1:8b`, `qwen2.5:7b`
+
 ### Métriques hôte vs container (FEMTO)
 
-Par défaut, FEMTO lit `/proc` pour obtenir les métriques de l'hôte (RAM, CPU, uptime). Pour la consommation disque de l'hôte, deux options :
+Par défaut, FEMTO lit `/proc` pour obtenir les métriques de l'hôte (RAM, CPU, uptime). Pour la consommation disque de l'hôte :
 
 **Option A** — Bind mount du système de fichiers hôte :
 ```yaml
@@ -456,25 +597,6 @@ volumes:
   - /:/host:ro
 ```
 Puis modifier `system_metrics.py` pour utiliser `df /host`.
-
-**Option B** — Mode réseau hôte + PID hôte :
-```yaml
-network_mode: host
-pid: host
-```
-(désactive l'isolation réseau — non recommandé en prod)
-
-### Modifier le modèle LLM
-
-```bash
-# .env — modèle partagé (FEMTO + GIORGIO)
-ASMO_OLLAMA_MODEL=ministral-3:14b
-
-# Modèle d'embedding GIORGIO (RAG bibliothèque)
-GIORGIO_EMBED_MODEL=nomic-embed-text
-```
-
-Modèles recommandés avec tool calling : `ministral-3:14b`, `llama3.1:8b`, `qwen2.5:7b`
 
 ---
 
@@ -487,16 +609,16 @@ Modèles recommandés avec tool calling : `ministral-3:14b`, `llama3.1:8b`, `qwe
 pip install -e commons/
 
 # Variables d'environnement pour dev
-export FEMTO_DISCORD_TOKEN=xxx
+export ALITA_DISCORD_TOKEN=xxx
 export ASMO_OLLAMA_BASE_URL=http://localhost:11434
 export ASMO_REDIS_URL=redis://localhost:6379
 export ASMO_LOG_JSON=false
 
-# Lancer FEMTO
-cd femto && pip install -e . && python -m src.main
-
 # Lancer ALITA
 cd alita && pip install -e . && python -m src.main
+
+# Lancer Olympus
+cd olympus && pip install -e . && python -m src.main
 ```
 
 ### Ajouter un outil
@@ -531,8 +653,7 @@ async def nom_de_loutil(param1: str) -> str:
 - **Whitelist stricte** : seules les commandes listées dans `CommandExecutor.ALLOWED_COMMANDS` sont exécutables. Aucune exécution shell arbitraire (`shell=False` partout).
 - **Read-only** : FEMTO ne modifie pas l'état du système.
 - **Socket Docker en RO** : monté en `:ro` — impossible d'écrire dans le socket.
-- **Whitelist HA** : `call_ha_service` est limité à 7 domaines autorisés explicitement.
-- **Secrets en env vars** : aucun secret en dur dans le code, tokens Spotify en SQLite.
+- **Secrets en env vars** : aucun secret en dur dans le code.
 - **Pub/sub non-bloquant** : Redis indisponible → dégradation gracieuse, le bot continue de fonctionner.
 - **Timeout sur chaque commande** : configurable via `FEMTO_CMD_TIMEOUT`.
 
@@ -548,12 +669,11 @@ async def nom_de_loutil(param1: str) -> str:
 | ALITA ne répond pas sur le canal | `ALITA_DISCORD_CHANNEL_ID` manquant | Renseigner l'ID du canal dédié dans `.env` |
 | GIORGIO ne répond pas sur le canal | `GIORGIO_RECOMMENDATION_CHANNEL_ID` manquant | Renseigner l'ID dans `.env` |
 | Score moto toujours indisponible | Clé API météo absente | Vérifier `ALITA_WEATHER_API_KEY` |
-| Spotify : "non connecté" | Auth OAuth non effectuée | Faire `!spotify-auth` et suivre le lien |
 | Portfolio ALITA vide | Première utilisation | Parler directement à ALITA pour déclarer les positions, ou renseigner `ALITA_PORTFOLIO` en JSON pour la migration initiale |
-| HA non disponible | Token HA absent ou URL incorrecte | Vérifier `ALITA_HA_TOKEN` et `ALITA_HA_URL` |
 | `ExecutorError: Command 'X' is not in the whitelist` | Commande non autorisée | Ajouter à `ALLOWED_COMMANDS` dans `executor.py` si légitime |
 | Index sémantique GIORGIO vide | `nomic-embed-text` non installé | `ollama pull nomic-embed-text` puis `docker compose restart giorgio` |
-| `library_index_sync_done embedded=0` | Modèle d'embedding absent | Même solution que ci-dessus |
+| Causality vide (aucun échange) | Container utilise une ancienne image | `docker compose up -d --force-recreate olympus` |
+| Titres de conversation non générés | Ollama occupé au moment de la génération | Timeout passé à 90s — si persiste, vérifier `docker compose logs olympus` |
 
 ---
 
@@ -563,31 +683,27 @@ async def nom_de_loutil(param1: str) -> str:
 - [x] FEMTO → ALITA : alertes Redis sur disque critique
 - [x] GIORGIO : système de notation avec boutons Discord
 - [x] GIORGIO → ALITA : publication des notations via Redis
-- [x] GIORGIO : canal dédié sans mention (`GIORGIO_RECOMMENDATION_CHANNEL_ID`)
-- [x] GIORGIO : recherche web SearXNG (fallback si rien dans Jellyfin)
-- [x] GIORGIO : profil de goût par genre pour les recommandations
-- [x] GIORGIO : index sémantique RAG (nomic-embed-text + SQLite, sync au démarrage)
+- [x] GIORGIO : canal dédié sans mention
+- [x] GIORGIO : recherche web SearXNG (fallback)
+- [x] GIORGIO : index sémantique RAG (nomic-embed-text + SQLite)
 - [x] GIORGIO : browse par genre Jellyfin (résultats réels, anti-hallucination)
-- [x] ALITA : briefing matinal complet (météo, moto, bourse, HA, rappels, alertes)
+- [x] ALITA : briefing matinal complet (météo, moto, bourse, rappels, alertes)
 - [x] ALITA : score moto intelligent (analyse 8h–19h, pluie rédhibitoire)
-- [x] ALITA : intégration Home Assistant (états + contrôle)
-- [x] ALITA : portefeuille boursier persistant en SQLite (buy/sell/set via LLM)
+- [x] ALITA : portefeuille boursier persistant en SQLite
 - [x] ALITA : recherche web SearXNG
-- [x] ALITA : contrôle Spotify avec OAuth2
 - [x] ALITA : mémoire persistante SQLite (préférences + rappels)
-- [x] ALITA : LTM mémoire long terme via RAG (nomic-embed-text, conversation_vectors SQLite)
-- [x] ALITA : auto-fetch URLs dans le contexte (Jina.ai Reader, bypass sélection d'outil)
+- [x] ALITA : LTM mémoire long terme via RAG (nomic-embed-text, conversation_vectors)
+- [x] ALITA : auto-fetch URLs dans le contexte (Jina.ai Reader)
 - [x] ALITA : intégration Anytype self-hosted (notes, pages, base de connaissance)
-- [x] ALITA : collecte de données d'entraînement SFT/DPO (training_logger + labelling interactif)
-- [x] ALITA : consolidation 15 outils (action-based, tool calling plus fiable sur 14B)
-- [x] ALITA : injections de rappels ciblés (memory, reminders, HA, Spotify, Anytype)
-- [x] **OLYMPUS v0.2.0** : gateway FastAPI HTTP/WebSocket — remplace la couche Discord
+- [x] ALITA : collecte de données d'entraînement SFT/DPO
+- [x] **OLYMPUS v0.2.0** : gateway FastAPI HTTP/WebSocket
 - [x] **OLYMPUS** : PWA Vue 3 + Pinia + Vite (dark/light, streaming, push-to-talk, images)
 - [x] **OLYMPUS** : STT faster-whisper CPU/int8 (WebM/Opus → texte)
-- [x] **OLYMPUS** : LTM segmentée par conversation (`conversation_id` filter)
-- [x] **OLYMPUS** : feedback 👍/👎 avec correction (SFT/DPO collecte depuis la PWA)
+- [x] **OLYMPUS** : feedback 👍/👎 avec correction (SFT/DPO depuis la PWA)
+- [x] **CAUSALITY** : middleware d'observabilité LLM (payloads, latences, GPU/swap)
+- [x] **CAUSALITY** : SPA dark/rouge — liste des échanges avec détail expandable
 - [ ] ALITA : intégration Google Calendar / Nextcloud CalDAV
 - [ ] ALITA : résumé d'actualités via flux RSS
-- [ ] GIORGIO : sync périodique de l'index sémantique (`GIORGIO_SYNC_INTERVAL_HOURS`)
+- [ ] GIORGIO : sync périodique de l'index sémantique
 - [ ] OLYMPUS : notifications push PWA (rappels ALITA, alertes FEMTO)
 - [ ] OLYMPUS : mode multi-utilisateur avec authentification
