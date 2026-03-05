@@ -26,17 +26,6 @@ _REMINDER_ADD_RE = re.compile(
     r"\b(rappelle[- ]moi|un rappel|remind\s+me|ajoute\s+un\s+rappel|crée\s+un\s+rappel)\b",
     re.IGNORECASE,
 )
-_HA_SERVICE_RE = re.compile(
-    r"\b(allume|éteins|étein[st]|ferme|ouvre|baisse|monte|règle|toggle|"
-    r"turn\s+on|turn\s+off|switch\s+on|switch\s+off)\b",
-    re.IGNORECASE,
-)
-_SPOTIFY_CONTROL_RE = re.compile(
-    r"\b(joue|mets?\s+en\s+pause|pause\s+(?:la\s+)?musique|chanson\s+suivante|"
-    r"passe\s+[àa]\s+la\s+suite|next\s+(?:song|track)|skip|"
-    r"reprends?(?:\s+la\s+musique)?|ajoute\s+[àa]\s+la\s+file)\b",
-    re.IGNORECASE,
-)
 
 import discord
 import structlog
@@ -54,10 +43,8 @@ from .pubsub.subscriber import AlitaSubscriber
 from .scheduler import AlitaScheduler
 from .tools.anytype import AnytypeTool
 from .tools.fetch_url import FetchUrlTool
-from .tools.home_assistant import HomeAssistantTool
 from .tools.long_term_memory import LongTermMemory
 from .tools.memory import MemoryTool
-from .tools.spotify import SpotifyTool
 from .tools.stocks import StocksTool
 from .tools.weather import WeatherTool
 from .tools.web_search import WebSearchTool
@@ -88,14 +75,7 @@ class AlitaBot(BaseBot):
         # Tools
         self.weather = WeatherTool(settings.alita_weather_api_key, settings.alita_weather_city)
         self.stocks = StocksTool(self.db)
-        self.ha = HomeAssistantTool(settings.alita_ha_url, settings.alita_ha_token)
         self.web_search = WebSearchTool(settings.alita_searxng_url)
-        self.spotify = SpotifyTool(
-            settings.alita_spotify_client_id,
-            settings.alita_spotify_client_secret,
-            settings.alita_spotify_redirect_uri,
-            self.db,
-        )
         self.memory = MemoryTool(self.db)
         self.ltm = LongTermMemory(self.db, self.ollama, settings.alita_embed_model)
         self.fetch_url = FetchUrlTool()
@@ -204,20 +184,6 @@ class AlitaBot(BaseBot):
                 "Appelle reminders avec action='add' IMMÉDIATEMENT avec le contenu et la date si précisée.]"
             )
             reminders_injected.append("reminders_add")
-
-        if _HA_SERVICE_RE.search(content):
-            parts.append(
-                "[RAPPEL OUTIL : L'utilisateur demande de contrôler un appareil domotique. "
-                "Appelle call_ha_service IMMÉDIATEMENT. Ne pas décrire l'action sans l'exécuter.]"
-            )
-            reminders_injected.append("ha_service")
-
-        if _SPOTIFY_CONTROL_RE.search(content):
-            parts.append(
-                "[RAPPEL OUTIL : L'utilisateur demande de contrôler Spotify. "
-                "Appelle spotify_control IMMÉDIATEMENT avec la bonne action.]"
-            )
-            reminders_injected.append("spotify_control")
 
         if reminders_injected:
             logger.debug("tool_reminders_injected", tools=reminders_injected)
@@ -416,70 +382,6 @@ class AlitaBot(BaseBot):
                     )
 
             return f"❌ Action inconnue : {action}. Utilise buy, sell ou set."
-
-        # --- Home Assistant ---
-        @reg.register(
-            "get_ha_info",
-            "Consulte Home Assistant en lecture. "
-            "action='states' : liste les entités (domain optionnel : light, switch, sensor, climate…) ; "
-            "action='entity' : état détaillé d'une entité (entity_id requis, ex: light.salon) ; "
-            "action='sensors' : résumé des capteurs clés (température, humidité, énergie) sans paramètre.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["states", "entity", "sensors"],
-                        "description": "states=liste entités, entity=détail entité, sensors=résumé capteurs",
-                    },
-                    "entity_id": {
-                        "type": "string",
-                        "description": "Requis si action='entity' (ex: light.salon)",
-                    },
-                    "domain": {
-                        "type": "string",
-                        "description": "Optionnel si action='states' pour filtrer (light, switch…)",
-                    },
-                },
-                "required": ["action"],
-            },
-        )
-        async def get_ha_info(
-            action: str,
-            entity_id: str | None = None,
-            domain: str | None = None,
-        ) -> str:
-            if action == "states":
-                return await self.ha.get_ha_states(domain)
-            if action == "entity":
-                if not entity_id:
-                    return "❌ entity_id requis pour action='entity'."
-                return await self.ha.get_ha_entity(entity_id)
-            if action == "sensors":
-                return await self.ha.get_ha_sensors_summary()
-            return f"❌ action inconnue : {action}. Utilise states, entity ou sensors."
-
-        @reg.register(
-            "call_ha_service",
-            "Exécute une action dans Home Assistant (turn_on, turn_off, toggle, activate scene…). "
-            "Appelle cet outil IMMÉDIATEMENT dès que l'utilisateur demande d'allumer, d'éteindre, "
-            "de régler ou de contrôler un appareil. Ne jamais décrire l'action sans l'exécuter. "
-            "Utilise get_ha_info pour lire l'état avant d'agir si nécessaire.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "domain": {"type": "string", "description": "Domaine (light, switch, scene…)"},
-                    "service": {"type": "string", "description": "Service (turn_on, turn_off, toggle…)"},
-                    "entity_id": {"type": "string", "description": "ID de l'entité"},
-                    "data": {"type": "object", "description": "Données supplémentaires (ex: brightness)"},
-                },
-                "required": ["domain", "service", "entity_id"],
-            },
-        )
-        async def call_ha_service(
-            domain: str, service: str, entity_id: str, data: dict | None = None
-        ) -> str:
-            return await self.ha.call_ha_service(domain, service, entity_id, data)
 
         # --- Web Search ---
         @reg.register(
@@ -748,17 +650,6 @@ class AlitaBot(BaseBot):
     # ------------------------------------------------------------------
 
     def _register_prefix_commands(self) -> None:
-        @self.command(name="spotify-auth", help="Obtenir l'URL d'authentification Spotify")
-        async def cmd_spotify_auth(ctx: commands.Context) -> None:
-            url = self.spotify.get_auth_url()
-            if url.startswith("⚠️"):
-                await ctx.send(url)
-            else:
-                await ctx.send(
-                    f"🎵 **Authentification Spotify**\n"
-                    f"Visite ce lien pour autoriser l'accès :\n{url}"
-                )
-
         @self.command(name="briefing", help="Forcer le briefing matinal immédiatement")
         async def cmd_briefing(ctx: commands.Context) -> None:
             async with ctx.typing():

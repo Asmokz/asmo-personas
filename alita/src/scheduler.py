@@ -70,13 +70,11 @@ class AlitaScheduler:
                 weather_str,
                 moto_str,
                 portfolio_str,
-                ha_sensors_str,
                 reminders_str,
             ) = await asyncio.gather(
                 _safe(bot.weather.get_current_weather()),
                 _safe(bot.weather.should_i_ride()),
                 _safe(bot.stocks.get_portfolio_summary()),
-                _safe(bot.ha.get_ha_sensors_summary()),
                 _safe(bot.memory.get_reminders()),
                 return_exceptions=False,
             )
@@ -91,7 +89,6 @@ class AlitaScheduler:
                 weather=weather_str,
                 moto=moto_str,
                 portfolio=portfolio_str,
-                ha_sensors=ha_sensors_str,
                 reminders=reminders_str,
                 system_alerts=system_alerts_str,
             )
@@ -140,7 +137,6 @@ def _build_briefing_prompt(
     weather: str,
     moto: str,
     portfolio: str,
-    ha_sensors: str,
     reminders: str,
     system_alerts: str,
 ) -> str:
@@ -149,7 +145,6 @@ def _build_briefing_prompt(
         f"## Météo\n{weather}\n\n"
         f"## Moto\n{moto}\n\n"
         f"## Portefeuille\n{portfolio}\n\n"
-        f"## Maison (HA)\n{ha_sensors}\n\n"
         f"## Rappels\n{reminders}\n\n"
         f"## Alertes système (FEMTO)\n{system_alerts}\n\n"
         "Synthétise ces données en un briefing naturel et utile en français. "

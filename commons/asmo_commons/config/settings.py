@@ -97,16 +97,6 @@ class AlitaSettings(BaseAsmoSettings):
     # Stocks — JSON array: [{"symbol":"AAPL","shares":10,"avg_price":150.0}, ...]
     alita_portfolio: str = "[]"
 
-    # Home Assistant
-    alita_ha_url: str = "http://homeassistant:8123"
-    alita_ha_token: Optional[str] = None
-
-    # Spotify OAuth
-    alita_spotify_client_id: Optional[str] = None
-    alita_spotify_client_secret: Optional[str] = None
-    alita_spotify_redirect_uri: str = "http://localhost:8888/spotify/callback"
-    alita_spotify_port: int = 8888
-
     # SearXNG
     alita_searxng_url: str = "http://searxng:8080"
 
