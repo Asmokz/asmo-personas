@@ -229,6 +229,11 @@ services:
       GIORGIO_VECTOR_DB_PATH: "/data/giorgio_vectors.db"
       # --- Olympus ---
       OLYMPUS_DB_PATH: "/data/olympus.db"
+      OLYMPUS_JWT_SECRET: "${OLYMPUS_JWT_SECRET}"
+      OLYMPUS_COOKIE_SECURE: "${OLYMPUS_COOKIE_SECURE:-false}"
+      OLYMPUS_ADMIN_EMAIL: "${OLYMPUS_ADMIN_EMAIL:-}"
+      OLYMPUS_ADMIN_PASSWORD: "${OLYMPUS_ADMIN_PASSWORD:-}"
+      OLYMPUS_ADMIN_USERNAME: "${OLYMPUS_ADMIN_USERNAME:-asmo}"
       WHISPER_MODEL: "${WHISPER_MODEL:-small}"
     cap_add:
       - SYS_RAWIO                             # FEMTO: smartctl raw disk access

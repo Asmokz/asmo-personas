@@ -38,7 +38,10 @@ RUN pip install --no-cache-dir \
     sqlalchemy>=2.0.0 \
     pymysql>=1.1.0 \
     structlog>=23.3.0 \
-    "pydantic-settings>=2.0.0"
+    "pydantic-settings>=2.0.0" \
+    "python-jose[cryptography]>=3.3.0" \
+    bcrypt>=4.0.0 \
+    slowapi>=0.1.9
 
 # 3. Copy all source trees (all accessed via PYTHONPATH=/app)
 COPY olympus/src/ /app/olympus/src/

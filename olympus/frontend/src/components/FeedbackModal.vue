@@ -14,6 +14,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useApi } from '../composables/useApi'
 
 const props = defineProps({ open: Boolean, entryId: String })
 const emit = defineEmits(['close'])
@@ -22,7 +23,8 @@ const correction = ref('')
 
 async function submit() {
   if (!props.entryId) return
-  await fetch('/api/feedback', {
+  const { apiFetch } = useApi()
+  await apiFetch('/api/feedback', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entry_id: props.entryId, quality: 'bad', correction: correction.value }),

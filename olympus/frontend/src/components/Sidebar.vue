@@ -43,21 +43,28 @@
 
       <!-- Footer -->
       <div class="sidebar-footer">
-        <span class="brand">Olympus v0.2.1</span>
+        <button class="account-btn" @click="showAccount = true" title="Gestion du compte">
+          👤 {{ authStore.user?.username }}
+        </button>
+        <span class="brand">v0.2.2</span>
       </div>
+
+      <AccountModal v-if="showAccount" @close="showAccount = false" />
 
     </div>
   </aside>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import PersonaSelector from './PersonaSelector.vue'
 import ConversationList from './ConversationList.vue'
 import PortfolioWidget from './PortfolioWidget.vue'
+import AccountModal from './AccountModal.vue'
 import { usePersonaStore } from '../stores/persona'
 import { useConversationStore } from '../stores/conversation'
 import { useChatStore } from '../stores/chat'
+import { useAuthStore } from '../stores/auth'
 
 const props = defineProps({
   open: Boolean,
@@ -68,6 +75,9 @@ defineEmits(['toggle'])
 const personaStore = usePersonaStore()
 const conversationStore = useConversationStore()
 const chatStore = useChatStore()
+const authStore = useAuthStore()
+
+const showAccount = ref(false)
 
 // Applied only on mobile during drag — disables CSS transition so sidebar follows finger
 const mobileStyle = computed(() => {
@@ -235,16 +245,40 @@ async function newConversation() {
 }
 
 .sidebar-footer {
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 0.75rem;
   border-top: 1px solid var(--border);
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   flex-shrink: 0;
+  gap: 0.5rem;
+}
+
+.account-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  border-radius: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70%;
+  text-align: left;
+}
+
+.account-btn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
 }
 
 .brand {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: var(--text-dim);
   letter-spacing: 0.05em;
+  flex-shrink: 0;
 }
 
 /* ── Mobile: sidebar fixed + transform-based animation ── */

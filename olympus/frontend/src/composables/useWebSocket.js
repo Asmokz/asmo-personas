@@ -5,13 +5,17 @@
  *   const { send, close } = useWebSocket(onEvent)
  *   send({ conv_id, persona_id, content, images })
  */
+import { useAuthStore } from '../stores/auth'
+
 export function useWebSocket(onEvent) {
   let ws = null
 
   function send(payload) {
     return new Promise((resolve, reject) => {
+      const authStore = useAuthStore()
       const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-      const url = `${protocol}://${location.host}/api/chat/stream`
+      const token = authStore.accessToken ? `?token=${encodeURIComponent(authStore.accessToken)}` : ''
+      const url = `${protocol}://${location.host}/api/chat/stream${token}`
       ws = new WebSocket(url)
 
       ws.onopen = () => {

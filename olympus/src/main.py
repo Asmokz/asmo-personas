@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import structlog
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -58,6 +58,12 @@ async def lifespan(app: FastAPI):
     db = OlympusDB(db_path)
     await db.init()
     app.state.db = db
+
+    # --- AuthDB ---
+    from olympus.src.auth.db import AuthDB
+    auth_db = AuthDB(db_path)
+    await auth_db.init()
+    app.state.auth_db = auth_db
 
     # --- Personas ---
     personas = {}
@@ -149,14 +155,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers
+# Auth router (public — no dependency)
+from olympus.src.auth.router import router as auth_router
+from olympus.src.auth.dependencies import get_current_user
+app.include_router(auth_router)
+
+# Protected routers — all require a valid JWT
 from olympus.src.routers import chat, conversations, feedback, personas, portfolio, voice
-app.include_router(personas.router)
-app.include_router(conversations.router)
-app.include_router(chat.router)
-app.include_router(feedback.router)
-app.include_router(portfolio.router)
-app.include_router(voice.router)
+_protected = {"dependencies": [Depends(get_current_user)]}
+app.include_router(personas.router,      **_protected)
+app.include_router(conversations.router, **_protected)
+app.include_router(chat.router)          # WS auth handled inside the endpoint
+app.include_router(feedback.router,      **_protected)
+app.include_router(portfolio.router,     **_protected)
+app.include_router(voice.router,         **_protected)
 
 
 @app.get("/health")

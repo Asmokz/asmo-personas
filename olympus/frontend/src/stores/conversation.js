@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { useApi } from '../composables/useApi'
 
 export const useConversationStore = defineStore('conversation', () => {
   const conversations = ref([])
@@ -7,8 +8,9 @@ export const useConversationStore = defineStore('conversation', () => {
   const loading = ref(false)
 
   async function fetchConversations(personaId) {
+    const { apiFetch } = useApi()
     try {
-      const res = await fetch(`/api/conversations?persona_id=${personaId}`)
+      const res = await apiFetch(`/api/conversations?persona_id=${personaId}`)
       conversations.value = await res.json()
     } catch (err) {
       console.error('fetchConversations failed', err)
@@ -16,7 +18,8 @@ export const useConversationStore = defineStore('conversation', () => {
   }
 
   async function createConversation(personaId) {
-    const res = await fetch('/api/conversations', {
+    const { apiFetch } = useApi()
+    const res = await apiFetch('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ persona_id: personaId }),
@@ -29,7 +32,8 @@ export const useConversationStore = defineStore('conversation', () => {
   }
 
   async function deleteConversation(convId) {
-    await fetch(`/api/conversations/${convId}`, { method: 'DELETE' })
+    const { apiFetch } = useApi()
+    await apiFetch(`/api/conversations/${convId}`, { method: 'DELETE' })
     conversations.value = conversations.value.filter(c => c.id !== convId)
     if (activeConvId.value === convId) {
       activeConvId.value = conversations.value[0]?.id || null
@@ -37,7 +41,8 @@ export const useConversationStore = defineStore('conversation', () => {
   }
 
   async function loadHistory(convId) {
-    const res = await fetch(`/api/conversations/${convId}`)
+    const { apiFetch } = useApi()
+    const res = await apiFetch(`/api/conversations/${convId}`)
     return await res.json()
   }
 

@@ -20,26 +20,35 @@
 
         <div v-for="pos in positions" :key="pos.symbol" class="pos-row">
           <span class="pos-symbol" :title="pos.label || pos.symbol">{{ pos.symbol }}</span>
-          <input
-            class="pos-input"
-            type="number"
-            min="0"
-            step="any"
-            :value="pos.shares"
-            @change="e => updateField(pos, 'shares', e.target.value)"
-            @keyup.enter="e => e.target.blur()"
-            title="Quantité"
-          />
-          <input
-            class="pos-input"
-            type="number"
-            min="0"
-            step="any"
-            :value="pos.avg_price"
-            @change="e => updateField(pos, 'avg_price', e.target.value)"
-            @keyup.enter="e => e.target.blur()"
-            title="PRU (€)"
-          />
+
+          <div class="pos-ctrl" title="Quantité">
+            <button class="step-btn" @click="stepField(pos, 'shares', -1)">−</button>
+            <input
+              class="pos-input"
+              type="number"
+              min="0"
+              step="1"
+              :value="pos.shares"
+              @change="e => updateField(pos, 'shares', e.target.value)"
+              @keyup.enter="e => e.target.blur()"
+            />
+            <button class="step-btn" @click="stepField(pos, 'shares', 1)">+</button>
+          </div>
+
+          <div class="pos-ctrl" title="PRU (€)">
+            <button class="step-btn" @click="stepField(pos, 'avg_price', -0.01)">−</button>
+            <input
+              class="pos-input"
+              type="number"
+              min="0"
+              step="0.01"
+              :value="pos.avg_price"
+              @change="e => updateField(pos, 'avg_price', e.target.value)"
+              @keyup.enter="e => e.target.blur()"
+            />
+            <button class="step-btn" @click="stepField(pos, 'avg_price', 0.01)">+</button>
+          </div>
+
           <button class="pos-delete" @click="deletePosition(pos.symbol)" title="Supprimer">✕</button>
         </div>
 
@@ -80,6 +89,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useApi } from '../composables/useApi'
 
 const positions = ref([])
 const loading = ref(false)
@@ -91,10 +101,11 @@ const newShares = ref('')
 const newPrice = ref('')
 
 async function fetchPortfolio() {
+  const { apiFetch } = useApi()
   loading.value = true
   error.value = null
   try {
-    const res = await fetch('/api/portfolio')
+    const res = await apiFetch('/api/portfolio')
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     positions.value = await res.json()
   } catch (e) {
@@ -102,6 +113,13 @@ async function fetchPortfolio() {
   } finally {
     loading.value = false
   }
+}
+
+async function stepField(pos, field, delta) {
+  const current = field === 'shares' ? pos.shares : pos.avg_price
+  const precision = field === 'avg_price' ? 2 : 0
+  const newVal = Math.max(0, parseFloat((current + delta).toFixed(precision)))
+  await updateField(pos, field, newVal)
 }
 
 async function updateField(pos, field, rawValue) {
@@ -114,8 +132,9 @@ async function updateField(pos, field, rawValue) {
     label: pos.label,
   }
 
+  const { apiFetch } = useApi()
   try {
-    const res = await fetch(`/api/portfolio/${pos.symbol}`, {
+    const res = await apiFetch(`/api/portfolio/${pos.symbol}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -131,8 +150,9 @@ async function updateField(pos, field, rawValue) {
 }
 
 async function deletePosition(symbol) {
+  const { apiFetch } = useApi()
   try {
-    const res = await fetch(`/api/portfolio/${symbol}`, { method: 'DELETE' })
+    const res = await apiFetch(`/api/portfolio/${symbol}`, { method: 'DELETE' })
     if (!res.ok) throw new Error()
     positions.value = positions.value.filter(p => p.symbol !== symbol)
   } catch {
@@ -145,8 +165,9 @@ async function addPosition() {
   const sym = newSymbol.value.trim().toUpperCase()
   if (!sym || !newShares.value || !newPrice.value) return
 
+  const { apiFetch } = useApi()
   try {
-    const res = await fetch(`/api/portfolio/${sym}`, {
+    const res = await apiFetch(`/api/portfolio/${sym}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ shares: newShares.value, avg_price: newPrice.value }),
@@ -223,13 +244,51 @@ onMounted(fetchPortfolio)
 .widget-status.error { color: #e05; }
 
 /* ── Position rows ── */
-.pos-row,
+.pos-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.5fr) 1fr 1fr auto;
+  gap: 0.25rem;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
 .add-row {
   display: grid;
   grid-template-columns: 3fr 2fr 2fr 1fr;
   gap: 0.25rem;
   align-items: center;
   margin-bottom: 0.2rem;
+}
+
+/* ── Step control group ── */
+.pos-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.step-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  line-height: 1;
+}
+
+.step-btn:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .pos-symbol {
@@ -260,6 +319,18 @@ onMounted(fetchPortfolio)
   border-color: var(--accent);
 }
 
+/* Hide native number spinners inside step groups */
+.pos-ctrl .pos-input::-webkit-inner-spin-button,
+.pos-ctrl .pos-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+}
+.pos-ctrl .pos-input {
+  -moz-appearance: textfield;
+  text-align: center;
+  padding: 0.2rem 0.15rem;
+  min-width: 0;
+}
+
 .symbol-input {
   text-align: left;
   text-transform: uppercase;
@@ -268,28 +339,42 @@ onMounted(fetchPortfolio)
   letter-spacing: 0.04em;
 }
 
+.pos-delete,
+.pos-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  flex-shrink: 0;
+}
+
 .pos-delete {
-  font-size: 0.65rem;
   color: var(--text-dim);
   background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0.2rem;
-  border-radius: 3px;
-  line-height: 1;
+  border: 1px solid transparent;
 }
-.pos-delete:hover { color: #e05; background: var(--bg-hover); }
+.pos-delete:hover {
+  color: #e05252;
+  background: color-mix(in srgb, #e05252 12%, transparent);
+  border-color: color-mix(in srgb, #e05252 30%, transparent);
+}
 
 .pos-add {
-  font-size: 0.9rem;
-  font-weight: 700;
   color: var(--accent);
-  background: none;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  cursor: pointer;
-  padding: 0.15rem;
-  line-height: 1;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  font-weight: 700;
+  font-size: 0.9rem;
 }
-.pos-add:hover { background: var(--accent); color: #fff; }
+.pos-add:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
 </style>

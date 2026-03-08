@@ -17,6 +17,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useApi } from '../composables/useApi'
 
 const props = defineProps({
   entryId: { type: String, default: null },
@@ -28,7 +29,8 @@ const voted = ref(null)
 async function vote(quality) {
   if (!props.entryId || voted.value) return
   voted.value = quality
-  await fetch('/api/feedback', {
+  const { apiFetch } = useApi()
+  await apiFetch('/api/feedback', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entry_id: props.entryId, quality }),

@@ -7,7 +7,7 @@ from typing import Optional
 
 import aiohttp
 import structlog
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 logger = structlog.get_logger()
@@ -111,8 +111,13 @@ async def chat(body: ChatRequest, request: Request):
 
 
 @router.websocket("/stream")
-async def chat_stream(websocket: WebSocket):
+async def chat_stream(
+    websocket: WebSocket,
+    token: str = Query(default=""),
+):
     """Streaming chat via WebSocket.
+
+    Auth: pass ?token=ACCESS_TOKEN in the WS URL.
 
     Client sends one JSON message:
         {"conv_id": "...", "persona_id": "alita", "content": "...", "images": [...]}
@@ -124,6 +129,12 @@ async def chat_stream(websocket: WebSocket):
         {"type": "done",       "entry_id": "..."}
         {"type": "error",      "message": "..."}
     """
+    from olympus.src.auth.dependencies import get_current_user_from_token
+    user = get_current_user_from_token(token)
+    if user is None:
+        await websocket.close(code=4001)
+        return
+
     await websocket.accept()
     try:
         raw = await websocket.receive_text()
