@@ -7,7 +7,7 @@ Quatre services IA autonomes pour le homelab **ASMO-01** : trois personas conver
 | **FEMTO** | Monitoring système & Docker | Discord | ✅ Fonctionnel |
 | **GIORGIO** | Médias, notations Jellyfin & recommandations | Discord + `:5555` | ✅ Fonctionnel |
 | **ALITA** | Assistante personnelle & briefing matinal | Discord + Olympus | ✅ Fonctionnel |
-| **OLYMPUS** | Gateway API + PWA Vue.js | `:8484` | ✅ Fonctionnel |
+| **OLYMPUS** | Gateway API + PWA Vue.js (auth JWT) | `:8484` | ✅ Fonctionnel |
 | **CAUSALITY** | Observabilité LLM (payloads, latences, GPU) | `:1966` | ✅ Fonctionnel |
 
 ---
@@ -34,10 +34,16 @@ asmo-personas/
 │   ├── src/
 │   │   ├── main.py              # FastAPI app (lifespan, CORS, static)
 │   │   ├── routers/             # chat, conversations, personas, feedback, voice
+│   │   ├── auth/                # JWT auth — router, db, schemas, security, dependencies
 │   │   ├── personas/            # AlitaPersona, FemtoPersona, GiorgioPersona
 │   │   ├── db/                  # OlympusDB (conversations + historique SQLite)
 │   │   └── stt/                 # faster-whisper (transcription vocale CPU/int8)
-│   └── frontend/                # Vue 3 + Vite + Pinia + PWA (dark/light mode)
+│   └── frontend/                # Vue 3 + Vite + Pinia + Vue Router 4 + PWA
+│       └── src/
+│           ├── router/          # Navigation guards (meta.requiresAuth / meta.public)
+│           ├── stores/auth.js   # Pinia auth store (access token mémoire uniquement)
+│           ├── composables/useApi.js  # apiFetch — Authorization header + retry 401
+│           └── views/           # LoginView, RegisterView, ChatView
 ├── causality/            # Middleware d'observabilité LLM
 │   └── src/
 │       ├── main.py              # FastAPI app (API + UI statique)
@@ -202,23 +208,39 @@ Olympus est le point d'entrée HTTP/WebSocket pour les trois personas. Il expose
 
 ### API REST
 
+**Auth** (`/auth/*`) — pas de token requis sauf indication :
+
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/personas` | Liste les personas disponibles (id, nom, couleur) |
-| `GET /api/conversations?persona_id=alita` | Liste les conversations d'une persona |
-| `POST /api/conversations` | Crée une nouvelle conversation `{"persona_id": "alita"}` |
-| `GET /api/conversations/{id}` | Détail + historique complet d'une conversation |
-| `DELETE /api/conversations/{id}` | Supprime une conversation |
-| `POST /api/chat` | Échange non-streamé — retourne `{reply, entry_id, tools_called}` |
-| `POST /api/feedback` | Note un échange `{"entry_id": "...", "quality": "good"\|"bad", "correction": "..."}` |
-| `POST /api/voice` | Transcription audio (multipart WebM/Opus) → `{"text": "..."}` |
+| `POST /auth/login` | Authentification `{"username", "password"}` → access token + cookie refresh |
+| `POST /auth/register` | Inscription `{"username", "email", "password", "confirm_password"}` + `?token=INVITE` |
+| `POST /auth/refresh` | Rotation du refresh token (cookie httpOnly) → nouvel access token |
+| `POST /auth/logout` | Révocation du refresh token + suppression du cookie |
+| `GET /auth/me` | 🔒 Profil de l'utilisateur connecté |
+| `POST /auth/change-password` | 🔒 Changement de mot de passe `{"current_password", "new_password"}` |
+| `POST /auth/invite` | 🔒 Admin — génère un token d'invitation 24h |
+
+**API principale** (🔒 = Bearer token requis) :
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/personas` | 🔒 Liste les personas disponibles (id, nom, couleur) |
+| `GET /api/conversations?persona_id=alita` | 🔒 Liste les conversations d'une persona |
+| `POST /api/conversations` | 🔒 Crée une nouvelle conversation `{"persona_id": "alita"}` |
+| `GET /api/conversations/{id}` | 🔒 Détail + historique complet d'une conversation |
+| `DELETE /api/conversations/{id}` | 🔒 Supprime une conversation |
+| `POST /api/chat` | 🔒 Échange non-streamé — retourne `{reply, entry_id, tools_called}` |
+| `POST /api/feedback` | 🔒 Note un échange `{"entry_id": "...", "quality": "good"\|"bad", "correction": "..."}` |
+| `POST /api/voice` | 🔒 Transcription audio (multipart WebM/Opus) → `{"text": "..."}` |
 | `GET /health` | Healthcheck `{"status": "ok", "personas": [...]}` |
 
 ### WebSocket streaming
 
 ```
-WS /api/chat/stream
+WS /api/chat/stream?token=ACCESS_TOKEN
 ```
+
+Authentification via query param (`?token=`) — le cookie httpOnly n'est pas transmis sur les WebSockets. Le token est récupéré depuis le store Pinia au moment de la connexion.
 
 Le client envoie un seul message JSON :
 ```json
@@ -244,13 +266,17 @@ npm run dev      # dev server :5173 avec proxy vers :8484
 ```
 
 Fonctionnalités :
+- **Authentification JWT** — login par username, access token en mémoire (jamais localStorage), refresh token httpOnly cookie, rotation automatique
+- **Navigation guards** Vue Router 4 — redirection vers `/login` si non authentifié, retry 401 transparent via `apiFetch`
+- **Gestion du compte** — modal accessible depuis le footer sidebar : infos utilisateur + changement de mot de passe
 - **Sélecteur de persona** : ALITA, FEMTO, GIORGIO avec avatar et couleur dédiée
 - **Historique de conversations** avec liste paginée dans la sidebar
-- **Streaming tokens** en temps réel via WebSocket
+- **Streaming tokens** en temps réel via WebSocket (auth via `?token=`)
 - **Entrée vocale** push-to-talk (WebM/Opus → faster-whisper)
 - **Partage d'images** (redimensionnées à max 1024px → base64)
+- **Portefeuille boursier** — boutons −/+ stylisés pour quantité et PRU, spinners natifs masqués
 - **Feedback 👍/👎** avec modal de correction pour la collecte SFT/DPO
-- **Dark/light mode** (palette warm : `#1a1410` / `#E85D04`)
+- **Dark mode** (palette warm : `#1a1410` / `#E85D04`)
 - **PWA installable** avec service worker Workbox (network-first API, cache-first assets)
 
 ### Déploiement Olympus
@@ -650,6 +676,12 @@ async def nom_de_loutil(param1: str) -> str:
 
 ## Sécurité
 
+- **JWT (python-jose)** : access tokens 15 min signés HS256 ; refresh tokens 30 jours stockés hachés (SHA-256) en SQLite, révoqués à chaque rotation.
+- **httpOnly cookie** : le refresh token n'est jamais accessible depuis JS (`SameSite=strict`, `Path=/auth/refresh`).
+- **bcrypt** (rounds=12) : mots de passe hachés directement avec la lib `bcrypt` (pas passlib — incompatible 4.x).
+- **Invitations** : l'inscription est fermée sans token d'invitation 24h généré par un admin.
+- **Rate limiting** : login et register limités à 5 req/min par IP (slowapi).
+- **Access token en mémoire uniquement** : jamais persisté en localStorage — perdu à la fermeture de l'onglet, silencieusement renouvelé via le cookie refresh au rechargement.
 - **Whitelist stricte** : seules les commandes listées dans `CommandExecutor.ALLOWED_COMMANDS` sont exécutables. Aucune exécution shell arbitraire (`shell=False` partout).
 - **Read-only** : FEMTO ne modifie pas l'état du système.
 - **Socket Docker en RO** : monté en `:ro` — impossible d'écrire dans le socket.
@@ -697,13 +729,16 @@ async def nom_de_loutil(param1: str) -> str:
 - [x] ALITA : intégration Anytype self-hosted (notes, pages, base de connaissance)
 - [x] ALITA : collecte de données d'entraînement SFT/DPO
 - [x] **OLYMPUS v0.2.0** : gateway FastAPI HTTP/WebSocket
-- [x] **OLYMPUS** : PWA Vue 3 + Pinia + Vite (dark/light, streaming, push-to-talk, images)
+- [x] **OLYMPUS** : PWA Vue 3 + Pinia + Vite (dark, streaming, push-to-talk, images)
 - [x] **OLYMPUS** : STT faster-whisper CPU/int8 (WebM/Opus → texte)
 - [x] **OLYMPUS** : feedback 👍/👎 avec correction (SFT/DPO depuis la PWA)
 - [x] **CAUSALITY** : middleware d'observabilité LLM (payloads, latences, GPU/swap)
 - [x] **CAUSALITY** : SPA dark/rouge — liste des échanges avec détail expandable
+- [x] **OLYMPUS v0.2.2** : authentification JWT complète (login username, refresh token httpOnly, rotation, rate limiting)
+- [x] **OLYMPUS v0.2.2** : Vue Router 4 + guards + `apiFetch` composable (retry 401 transparent)
+- [x] **OLYMPUS v0.2.2** : gestion de compte PWA (changement de mot de passe, modal sidebar)
+- [x] **OLYMPUS v0.2.2** : portefeuille — boutons −/+ custom stylisés pour quantité et PRU
 - [ ] ALITA : intégration Google Calendar / Nextcloud CalDAV
 - [ ] ALITA : résumé d'actualités via flux RSS
 - [ ] GIORGIO : sync périodique de l'index sémantique
 - [ ] OLYMPUS : notifications push PWA (rappels ALITA, alertes FEMTO)
-- [ ] OLYMPUS : mode multi-utilisateur avec authentification
