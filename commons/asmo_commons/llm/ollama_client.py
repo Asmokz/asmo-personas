@@ -35,9 +35,11 @@ class OllamaClient:
         max_retries: int = 3,
         retry_min_wait: float = 1.0,
         retry_max_wait: float = 10.0,
+        num_ctx: Optional[int] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.num_ctx = num_ctx
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._max_retries = max_retries
         self._retry_min_wait = retry_min_wait
@@ -120,7 +122,9 @@ class OllamaClient:
     ) -> str:
         """Send a conversation to Ollama and return the assistant text."""
         full_messages = _prepend_system(messages, system_prompt)
-        payload = {"model": self.model, "messages": full_messages, "stream": False}
+        payload: dict = {"model": self.model, "messages": full_messages, "stream": False}
+        if self.num_ctx:
+            payload["options"] = {"num_ctx": self.num_ctx}
 
         call_id = None
         ts_start = time.time()
@@ -152,12 +156,14 @@ class OllamaClient:
         The caller is responsible for executing tool calls and looping back.
         """
         full_messages = _prepend_system(messages, system_prompt)
-        payload = {
+        payload: dict = {
             "model": self.model,
             "messages": full_messages,
             "tools": tools,
             "stream": False,
         }
+        if self.num_ctx:
+            payload["options"] = {"num_ctx": self.num_ctx}
 
         call_id = None
         ts_start = time.time()

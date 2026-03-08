@@ -44,16 +44,25 @@ class WeatherTool:
         except Exception as exc:
             return f"❌ Prévisions indisponibles : {exc}"
 
-    async def should_i_ride(self, city: Optional[str] = None) -> str:
-        """Analyse si les conditions sont favorables à la moto (8h–19h)."""
+    async def should_i_ride(
+        self, city: Optional[str] = None, target_date: Optional[str] = None
+    ) -> str:
+        """Analyse si les conditions sont favorables à la moto (8h–19h).
+
+        target_date : date au format YYYY-MM-DD. Si absent, analyse aujourd'hui.
+        """
         if not self._api_key:
             return "⚠️ Clé API météo non configurée"
         target = city or self._default_city
         try:
-            forecast_data = await self._fetch_forecast(target, cnt=16)
-            hourly = _parse_hourly(forecast_data)
+            # 40 slots = 5 jours × 8 créneaux 3h — couvre toute la semaine
+            forecast_data = await self._fetch_forecast(target, cnt=40)
+            hourly = _parse_hourly(forecast_data, target_date=target_date)
+            if not hourly:
+                return f"❌ Pas de données météo disponibles pour le {target_date}."
             result = _compute_moto_score(hourly)
-            return _format_moto_score(result)
+            date_label = f" du {target_date}" if target_date else ""
+            return _format_moto_score(result, date_label=date_label)
         except Exception as exc:
             logger.error("moto_score_error", error=str(exc))
             return f"❌ Impossible de calculer le score moto : {exc}"
@@ -138,14 +147,20 @@ def _format_forecast(data: dict, city: str, days: int) -> str:
     return "\n".join(lines)
 
 
-def _parse_hourly(data: dict) -> list[dict]:
+def _parse_hourly(data: dict, target_date: Optional[str] = None) -> list[dict]:
     slots = []
     for item in data.get("list", []):
         dt_txt = item.get("dt_txt", "")
         try:
-            hour = datetime.strptime(dt_txt, "%Y-%m-%d %H:%M:%S").hour if dt_txt else -1
+            dt = datetime.strptime(dt_txt, "%Y-%m-%d %H:%M:%S") if dt_txt else None
         except ValueError:
-            hour = -1
+            dt = None
+        hour = dt.hour if dt else -1
+
+        if target_date and dt:
+            if dt.strftime("%Y-%m-%d") != target_date:
+                continue
+
         slots.append({
             "hour": hour,
             "dt_txt": dt_txt,
@@ -227,12 +242,12 @@ def _compute_moto_score(hourly: list[dict]) -> dict:
     return {"score": score, "details": details, "verdict": verdict}
 
 
-def _format_moto_score(result: dict) -> str:
+def _format_moto_score(result: dict, date_label: str = "") -> str:
     score = result["score"]
     verdict = result["verdict"]
     details = result["details"]
     bar = "🟩" * score + "⬜" * (10 - score)
-    lines = [f"🏍️ **Score moto : {score}/10**", bar, f"**{verdict}**"]
+    lines = [f"🏍️ **Score moto{date_label} : {score}/10**", bar, f"**{verdict}**"]
     if details:
         lines.append("")
         lines.extend(f"  • {d}" for d in details)

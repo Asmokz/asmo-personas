@@ -22,10 +22,6 @@ _MEMORY_REMEMBER_RE = re.compile(
     r"\b(souviens[- ]toi|mémorise|retiens|n'oublie pas|remember\s+that|garde\s+en\s+m[eé]moire)\b",
     re.IGNORECASE,
 )
-_REMINDER_ADD_RE = re.compile(
-    r"\b(rappelle[- ]moi|un rappel|remind\s+me|ajoute\s+un\s+rappel|crée\s+un\s+rappel)\b",
-    re.IGNORECASE,
-)
 
 import discord
 import structlog
@@ -65,6 +61,7 @@ class AlitaBot(BaseBot):
                 max_retries=settings.asmo_ollama_max_retries,
                 retry_min_wait=settings.asmo_ollama_retry_min_wait,
                 retry_max_wait=settings.asmo_ollama_retry_max_wait,
+                num_ctx=8192,
             ),
             command_prefix="!",
         )
@@ -107,17 +104,16 @@ class AlitaBot(BaseBot):
         return self._registry
 
     # ------------------------------------------------------------------
-    # Dynamic system prompt (async, includes live preferences/reminders)
+    # Dynamic system prompt (async, includes live preferences)
     # ------------------------------------------------------------------
 
     _cached_system_prompt: str = build_system_prompt()
 
     async def _refresh_prompt(self) -> None:
-        """Reload preferences and reminders into the system prompt cache."""
+        """Reload preferences into the system prompt cache."""
         try:
             prefs = await self.db.list_preferences()
-            reminders = await self.db.get_pending_reminders()
-            self._cached_system_prompt = build_system_prompt(prefs, reminders)
+            self._cached_system_prompt = build_system_prompt(prefs)
         except Exception as exc:
             logger.warning("prompt_refresh_failed", error=str(exc))
 
@@ -167,7 +163,7 @@ class AlitaBot(BaseBot):
         if _ANYTYPE_CREATE_RE.search(content):
             parts.append(
                 "[RAPPEL OUTIL : L'utilisateur demande de créer une note Anytype. "
-                "Appelle anytype_create_note EN PREMIER avec tout le contenu dans body. "
+                "Appelle anytype_create EN PREMIER avec tout le contenu dans body. "
                 "Ne pas écrire la note dans le chat.]"
             )
             reminders_injected.append("anytype_create")
@@ -179,13 +175,6 @@ class AlitaBot(BaseBot):
                 "Ne pas juste acquiescer — persister dans la DB.]"
             )
             reminders_injected.append("memory_remember")
-
-        if _REMINDER_ADD_RE.search(content):
-            parts.append(
-                "[RAPPEL OUTIL : L'utilisateur demande un rappel. "
-                "Appelle reminders avec action='add' IMMÉDIATEMENT avec le contenu et la date si précisée.]"
-            )
-            reminders_injected.append("reminders_add")
 
         if reminders_injected:
             logger.debug("tool_reminders_injected", tools=reminders_injected)
@@ -228,7 +217,7 @@ class AlitaBot(BaseBot):
 
         # --- Weather ---
         @reg.register(
-            "get_current_weather",
+            "weather_current",
             "Retourne la météo actuelle à Marseille (ou une autre ville si précisée).",
             parameters={
                 "type": "object",
@@ -238,11 +227,11 @@ class AlitaBot(BaseBot):
                 "required": [],
             },
         )
-        async def get_current_weather(city: str | None = None) -> str:
+        async def weather_current(city: str | None = None) -> str:
             return await self.weather.get_current_weather(city)
 
         @reg.register(
-            "get_weather_forecast",
+            "weather_forecast",
             "Retourne les prévisions météo pour les prochains jours.",
             parameters={
                 "type": "object",
@@ -253,34 +242,41 @@ class AlitaBot(BaseBot):
                 "required": [],
             },
         )
-        async def get_weather_forecast(city: str | None = None, days: int = 3) -> str:
+        async def weather_forecast(city: str | None = None, days: int = 3) -> str:
             return await self.weather.get_forecast(city, days)
 
         @reg.register(
-            "should_i_ride",
-            "Analyse si les conditions météo sont favorables pour prendre la moto aujourd'hui (8h-19h). "
-            "Appelle cet outil systématiquement le matin ou si on parle de déplacement en moto.",
+            "weather_moto",
+            "Analyse si les conditions météo sont favorables pour prendre la moto (8h-19h). "
+            "Appelle cet outil le matin ou si on parle de déplacement en moto. "
+            "Si l'utilisateur mentionne un jour précis (ex: 'mardi', 'jeudi'), "
+            "calcule la date YYYY-MM-DD correspondante et passe-la dans target_date.",
             parameters={
                 "type": "object",
                 "properties": {
                     "city": {"type": "string", "description": "Ville (défaut : Marseille,FR)"},
+                    "target_date": {
+                        "type": "string",
+                        "description": "Date cible au format YYYY-MM-DD (ex: 2026-03-11). "
+                                       "Optionnel — si absent, analyse aujourd'hui.",
+                    },
                 },
                 "required": [],
             },
         )
-        async def should_i_ride(city: str | None = None) -> str:
-            return await self.weather.should_i_ride(city)
+        async def weather_moto(city: str | None = None, target_date: str | None = None) -> str:
+            return await self.weather.should_i_ride(city, target_date)
 
         # --- Stocks ---
         @reg.register(
-            "get_portfolio_info",
+            "portfolio_summary",
             "Retourne le résumé du portefeuille boursier avec les performances et P&L.",
         )
-        async def get_portfolio_info() -> str:
+        async def portfolio_summary() -> str:
             return await self.stocks.get_portfolio_summary()
 
         @reg.register(
-            "get_stock_quote",
+            "portfolio_quote",
             "Retourne le cours actuel d'une action (ex: AAPL, MSFT, MC.PA).",
             parameters={
                 "type": "object",
@@ -290,11 +286,11 @@ class AlitaBot(BaseBot):
                 "required": ["symbol"],
             },
         )
-        async def get_stock_quote(symbol: str) -> str:
+        async def portfolio_quote(symbol: str) -> str:
             return await self.stocks.get_stock_quote(symbol)
 
         @reg.register(
-            "update_portfolio_position",
+            "portfolio_update",
             "Met à jour une position dans le portefeuille boursier persistant. "
             "Utilise action='buy' pour un achat (recalcule le PRU), 'sell' pour une vente (réduit les parts, "
             "supprime la ligne si tout est vendu), 'set' pour forcer les valeurs (corrections manuelles). "
@@ -327,7 +323,7 @@ class AlitaBot(BaseBot):
                 "required": ["symbol", "action", "shares", "price"],
             },
         )
-        async def update_portfolio_position(
+        async def portfolio_update(
             symbol: str,
             action: str,
             shares: float,
@@ -450,60 +446,9 @@ class AlitaBot(BaseBot):
                 return await mem.list_preferences()
             return f"❌ action inconnue : {action}. Utilise remember, recall ou list."
 
-        # --- Reminders ---
-        @reg.register(
-            "reminders",
-            "Gère les rappels. Appelle TOUJOURS cet outil avec action='add' dès qu'Asmo dit "
-            "'rappelle-moi', 'remind me' ou demande un rappel — même sans date précise. "
-            "Ne jamais juste répéter le rappel sans l'avoir persisté en DB. "
-            "action='add' : crée un rappel (content requis, due_at optionnel au format ISO 8601) ; "
-            "action='list' : liste les rappels en attente, aucun paramètre ; "
-            "action='complete' : marque un rappel comme terminé (reminder_id requis).",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["add", "list", "complete"],
-                        "description": "add=créer, list=lister, complete=terminer",
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Requis si action='add'",
-                    },
-                    "due_at": {
-                        "type": "string",
-                        "description": "Optionnel si action='add' — date ISO 8601 (ex: 2026-03-15T09:00:00)",
-                    },
-                    "reminder_id": {
-                        "type": "integer",
-                        "description": "Requis si action='complete'",
-                    },
-                },
-                "required": ["action"],
-            },
-        )
-        async def reminders(
-            action: str,
-            content: str | None = None,
-            due_at: str | None = None,
-            reminder_id: int | None = None,
-        ) -> str:
-            if action == "add":
-                if not content:
-                    return "❌ content requis pour action='add'."
-                return await self.memory.add_reminder(content, due_at)
-            if action == "list":
-                return await self.memory.get_reminders()
-            if action == "complete":
-                if reminder_id is None:
-                    return "❌ reminder_id requis pour action='complete'."
-                return await self.memory.complete_reminder(reminder_id)
-            return f"❌ action inconnue : {action}. Utilise add, list ou complete."
-
         # --- Anytype ---
         @reg.register(
-            "anytype_create_note",
+            "anytype_create",
             "Crée une note ou capture une idée dans Anytype (base de connaissances personnelle). "
             "Utilise cet outil dès que l'utilisateur mentionne une idée à noter, quelque chose "
             "à retenir, ou demande explicitement de créer une note ou une page.",
@@ -524,7 +469,7 @@ class AlitaBot(BaseBot):
                 "required": ["title"],
             },
         )
-        async def anytype_create_note(
+        async def anytype_create(
             title: str, body: str = "", type_key: str = "page"
         ) -> str:
             return await self.anytype.create_note(title, body, type_key)
@@ -658,12 +603,6 @@ class AlitaBot(BaseBot):
         async def cmd_briefing(ctx: commands.Context) -> None:
             async with ctx.typing():
                 await self._scheduler.post_briefing(ctx.channel)
-
-        @self.command(name="rappels", help="Lister les rappels en attente")
-        async def cmd_rappels(ctx: commands.Context) -> None:
-            async with ctx.typing():
-                result = await self.memory.get_reminders()
-                await send_long_message(ctx.channel, result)
 
         @self.command(name="prefs", help="Lister les préférences mémorisées")
         async def cmd_prefs(ctx: commands.Context) -> None:
