@@ -52,6 +52,7 @@ services:
       context: .
       dockerfile: femto/Dockerfile
     environment:
+      TZ: "Europe/Paris"
       ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       FEMTO_OLLAMA_MODEL: "${FEMTO_OLLAMA_MODEL:-ministral-3:14b}"
       ASMO_REDIS_URL: "redis://redis:6379"
@@ -64,6 +65,7 @@ services:
       FEMTO_CMD_TIMEOUT: "${FEMTO_CMD_TIMEOUT:-10}"
       FEMTO_NAS_DEVICE: "${FEMTO_NAS_DEVICE:-/dev/sda}"
       FEMTO_NAS_SMART_TYPE: "${FEMTO_NAS_SMART_TYPE:-sat}"
+      FEMTO_CAUSALITY_URL: "${FEMTO_CAUSALITY_URL:-http://causality:1966}"
     cap_add:
       - SYS_RAWIO           # required for smartctl raw disk access
     devices:
@@ -100,6 +102,7 @@ services:
       dockerfile: alita/Dockerfile
     container_name: asmo-alita
     environment:
+      TZ: "Europe/Paris"
       ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       ASMO_REDIS_URL: "redis://redis:6379"
       ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
@@ -145,6 +148,7 @@ services:
       context: .
       dockerfile: giorgio/Dockerfile
     environment:
+      TZ: "Europe/Paris"
       ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       GIORGIO_OLLAMA_MODEL: "${GIORGIO_OLLAMA_MODEL:-ministral-3:8b}"
       ASMO_REDIS_URL: "redis://redis:6379"
@@ -183,6 +187,7 @@ services:
       dockerfile: olympus/Dockerfile
     container_name: asmo-olympus
     environment:
+      TZ: "Europe/Paris"
       ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       ASMO_REDIS_URL: "redis://redis:6379"
       ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
@@ -276,6 +281,8 @@ services:
       ASMO_REDIS_URL: "redis://redis:6379"
       CAUSALITY_DB_PATH: "/data/causality.db"
       CAUSALITY_RETENTION_DAYS: "${CAUSALITY_RETENTION_DAYS:-7}"
+      ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      CAUSALITY_ANALYSIS_MODEL: "${CAUSALITY_ANALYSIS_MODEL:-ministral-3:14b}"
       CAUSALITY_PORT: "1966"
       ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
       ASMO_LOG_JSON: "${ASMO_LOG_JSON:-false}"

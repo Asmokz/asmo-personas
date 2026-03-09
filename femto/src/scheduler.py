@@ -131,6 +131,9 @@ class FemtoScheduler:
             history_summary = _load_metrics_summary(
                 bot.settings.femto_metrics_file, hours=24
             )
+            causality_summary = await _fetch_causality_summary(
+                bot.settings.femto_causality_url
+            )
 
             sys_metrics = metrics.get("system", {})
             prompt = (
@@ -144,14 +147,23 @@ class FemtoScheduler:
                 f"Uptime : {sys_metrics.get('uptime', 'N/A')}\n\n"
                 f"Conteneurs :\n{metrics.get('docker', 'N/A')}\n\n"
                 f"**Résumé historique (24h)** :\n{history_summary}\n\n"
+                f"**Santé LLM (Causality — 2h glissantes)** :\n{causality_summary}\n\n"
                 "Structure ton rapport avec : état général, points d'attention "
                 "(disque NAS + SMART inclus), tendances."
             )
 
+            # Use a report-specific system prompt that suppresses the
+            # "always call tools" rule — metrics are already in the prompt.
+            report_system = bot.get_system_prompt() + (
+                "\n\n**MODE RAPPORT AUTOMATIQUE** : Toutes les métriques sont déjà "
+                "fournies dans ce prompt. Ne liste pas d'outils à appeler et ne dis "
+                "pas que tu vas les appeler. Génère directement le rapport de monitoring "
+                "structuré à partir des données présentes."
+            )
             try:
                 report = await bot.ollama.chat(
                     messages=[{"role": "user", "content": prompt}],
-                    system_prompt=bot.get_system_prompt(),
+                    system_prompt=report_system,
                 )
             except Exception as exc:
                 report = f"⚠️ Génération du rapport échouée : {exc}"
@@ -251,3 +263,38 @@ async def _sleep_until_hour(hour: int) -> None:
     wait = (target - now).total_seconds()
     logger.info("scheduler_sleep_until", target=target.isoformat(), seconds=int(wait))
     await asyncio.sleep(wait)
+
+
+async def _fetch_causality_summary(causality_url: str) -> str:
+    """Fetch the 2h metrics summary from the Causality service."""
+    if not causality_url:
+        return "Causality non configuré."
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{causality_url.rstrip('/')}/api/metrics/summary",
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status != 200:
+                    return f"Causality indisponible (HTTP {resp.status})"
+                data = await resp.json()
+        w = data.get("window_2h", {})
+        b = data.get("baseline_24h", {})
+        status = data.get("status", "?")
+        alerts = data.get("active_alerts", [])
+        tok_s = w.get("tok_s_avg", "N/A")
+        baseline_tok_s = b.get("tok_s_avg", "N/A")
+        unf = w.get("unfinished_rate")
+        unf_str = f"{unf * 100:.0f}%" if unf is not None else "N/A"
+        lines = [
+            f"Statut : {status} | tok/s : {tok_s} (baseline : {baseline_tok_s}) | "
+            f"Convs résolues : {100 - (unf * 100 if unf else 0):.0f}%"
+        ]
+        if alerts:
+            for a in alerts:
+                emoji = "🔴" if a.get("severity") == "critical" else "🟡"
+                lines.append(f"{emoji} {a.get('message', '')}")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"Causality indisponible : {exc}"

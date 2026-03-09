@@ -26,6 +26,8 @@ asmo-personas/
 │       ├── pubsub/redis_client.py # RedisPubSub (asmo.alerts.system, asmo.media.rated)
 │       └── tools/registry.py    # @registry.register() decorator pattern
 ├── femto/                # Persona monitoring (Discord)
+│   └── src/
+│       ├── pubsub/subscriber.py # FemtoCausalitySubscriber — drift alerts → Discord
 ├── giorgio/              # Persona média (Discord + webhook Jellyfin)
 ├── alita/                # Persona assistante (Discord + Olympus)
 │   └── scripts/
@@ -48,8 +50,10 @@ asmo-personas/
 │   └── src/
 │       ├── main.py              # FastAPI app (API + UI statique)
 │       ├── subscriber.py        # Listener Redis asmo.causality
+│       ├── aggregator.py        # MetricsAggregator — métriques 2h/24h + DriftDetector
+│       ├── analyzer.py          # PatternAnalyzer — analyse LLM hebdo (dimanche 20h)
 │       ├── hardware.py          # Sampler GPU (pynvml) + swap (psutil)
-│       ├── db/manager.py        # SQLite rolling window (7 jours par défaut)
+│       ├── db/manager.py        # SQLite rolling window + table analyses
 │       └── static/index.html   # SPA dark/rouge — liste des échanges LLM
 ├── docker-compose.yml
 └── .env.example
@@ -60,10 +64,15 @@ asmo-personas/
 ### Flux inter-services (Redis pub/sub)
 
 ```
-FEMTO  ──► asmo.alerts.system  ──► ALITA (notification si critique)
-GIORGIO ──► asmo.media.rated   ──► ALITA (bufferisé pour le briefing)
+FEMTO  ──► asmo.alerts.system    ──► ALITA (bufferisé pour le briefing)
+GIORGIO ──► asmo.media.rated     ──► ALITA (bufferisé pour le briefing)
 
-OllamaClient ──► asmo.causality ──► CAUSALITY (chaque appel LLM, fire-and-forget)
+OllamaClient ──► asmo.causality  ──► CAUSALITY (chaque appel LLM, fire-and-forget)
+
+CAUSALITY ──► asmo.alerts.causality ──► FEMTO (drift alerts + rapport hebdo)
+                                            │
+                                            ▼
+                                       Discord (canal FEMTO_REPORT_CHANNEL_ID)
 ```
 
 ---
@@ -121,7 +130,7 @@ Ce schéma décrit le trajet complet d'un message utilisateur sur la PWA jusqu'�
 │  7. Construit le message user : { context_prefix + content }       │
 │  8. Appende à history                                               │
 │                                                                     │
-│  ┌── BOUCLE OUTIL (max 5 itérations) ────────────────────────────┐ │
+│  ┌── BOUCLE OUTIL (max 8 itérations) ────────────────────────────┐ │
 │  │                                                                │ │
 │  │  9. CausalityClient.record_call_start()  ◄─── fire-and-forget │ │
 │  │     PUBLISH asmo.causality {call_id, conv_id, model,          │ │
@@ -300,7 +309,7 @@ curl http://localhost:8484/api/personas
 
 ## Causality — Observabilité LLM
 
-Causality est un service autonome qui capture chaque appel Ollama de tous les personas via Redis, sans bloquer le chemin critique.
+Causality est un service autonome qui capture chaque appel Ollama de tous les personas via Redis, sans bloquer le chemin critique. Il détecte les dérives de comportement LLM et publie des alertes en temps réel.
 
 ### Architecture
 
@@ -311,27 +320,47 @@ OllamaClient (dans chaque persona)
   │
   ▼  (Redis pub/sub, fire-and-forget)
   │
-CausalitySubscriber (causality/src/subscriber.py)
-  │  reçoit les événements
-  │  appelle HardwareSampler à la fin d'un appel :
-  │    - GPU : utilisation, température, VRAM (pynvml — RTX 3060)
-  │    - swap : utilisé/total (psutil)
-  │
+CausalitySubscriber (subscriber.py)
+  │  reçoit les événements, appelle HardwareSampler (GPU pynvml + swap psutil)
   ▼
 SQLite /data/causality.db  (rolling window CAUSALITY_RETENTION_DAYS, défaut 7j)
+  │                          tables : exchanges, analyses
+  ├── CausalityAggregator (aggregator.py) — tâche toutes les 10 min
+  │     calcule métriques 2h vs baseline 24h, publie drift alerts sur Redis
+  │     → asmo.alerts.causality → FEMTO → Discord (alerte immédiate)
   │
+  └── PatternAnalyzer (analyzer.py) — tâche hebdomadaire (dimanche 20h)
+        requête SQL sur 7 jours → prompt structuré → Ollama → analyse patterns
+        publie le rapport → asmo.alerts.causality → FEMTO → Discord
+
 FastAPI :1966
-  GET /              → SPA dark/rouge (auto-refresh 30s, lignes expandables)
-  GET /api/exchanges → JSON [{call_id, persona, model, duration_ms, tok_s, ...}]
-  GET /health        → {"status": "ok"}
+  GET /                      → SPA dark/rouge (liste des échanges)
+  GET /api/exchanges         → JSON [{call_id, persona, model, duration_ms, tok_s, ...}]
+  GET /api/metrics/summary   → métriques 2h + baseline 24h + alertes actives
+  GET /api/analysis/latest   → dernier rapport PatternAnalyzer
+  GET /health                → {"status": "ok"}
 ```
+
+### Seuils de dérive (calibrés sur données réelles)
+
+| Métrique | Seuil alerte | Baseline observée |
+|---|---|---|
+| tok/s plancher | < 15 tok/s | ~30 tok/s (ministral-3:14b) |
+| tok/s drop | < 50% du baseline 24h | stable |
+| Convs sans réponse finale | > 35% sur 2h | ~12% |
+| Boucles longues (6+ tours) | > 40% sur 2h | ~12% |
+| Échecs d'outils | > 25% sur 2h | ~5% |
+
+Minimum 3 conversations / 10 résultats d'outils requis pour déclencher une alerte (évite le bruit sur faible volume). Cooldown 1h par type d'alerte.
 
 ### Variables d'environnement
 
 ```env
-CAUSALITY_RETENTION_DAYS=7   # durée de rétention des métriques
+CAUSALITY_RETENTION_DAYS=7        # durée de rétention des échanges
 CAUSALITY_PORT=1966
 CAUSALITY_DB_PATH=/data/causality.db
+ASMO_OLLAMA_BASE_URL=...          # pour PatternAnalyzer (appel Ollama)
+CAUSALITY_ANALYSIS_MODEL=ministral-3:14b
 ```
 
 ---
@@ -432,9 +461,25 @@ docker compose logs -f femto
 
 ### Rapport automatique
 
-FEMTO collecte les métriques toutes les heures et poste un rapport de 24h chaque jour à l'heure configurée (`FEMTO_HISTORY_REPORT_HOUR`, défaut : 9h00) sur le canal `FEMTO_REPORT_CHANNEL_ID`.
+FEMTO collecte les métriques toutes les heures et poste un rapport de 24h chaque jour à l'heure configurée (`FEMTO_HISTORY_REPORT_HOUR`, défaut : 9h00) sur le canal `FEMTO_REPORT_CHANNEL_ID`. Le rapport inclut une section **Santé LLM** alimentée par Causality (`/api/metrics/summary`).
 
-Il publie également une alerte sur Redis (`asmo.alerts.system`) quand un disque dépasse 90% d'utilisation, déclenchant une notification immédiate d'ALITA.
+Il publie également une alerte sur Redis (`asmo.alerts.system`) quand un disque dépasse 90% d'utilisation.
+
+### Alertes Causality
+
+FEMTO écoute le canal Redis `asmo.alerts.causality` et poste immédiatement sur Discord quand :
+- 🔴 `tok_s_floor` — tok/s en dessous du plancher critique (< 15)
+- 🟡 `tok_s_degraded` — tok/s < 50% du baseline 24h (changement de modèle, surcharge)
+- 🟡 `unfinished_rate` — > 35% des conversations sans réponse finale
+- 🟡 `long_conv_rate` — > 40% des conversations en boucle (6+ tours)
+- 🟡 `tool_fail_rate` — > 25% d'échecs d'outils
+
+Chaque dimanche à 20h, le `PatternAnalyzer` publie une analyse LLM des patterns d'échec des 7 derniers jours (corrélations outils/boucles, tendances, recommandations).
+
+Variables supplémentaires :
+```env
+FEMTO_CAUSALITY_URL=http://causality:1966
+```
 
 ---
 
@@ -738,7 +783,16 @@ async def nom_de_loutil(param1: str) -> str:
 - [x] **OLYMPUS v0.2.2** : Vue Router 4 + guards + `apiFetch` composable (retry 401 transparent)
 - [x] **OLYMPUS v0.2.2** : gestion de compte PWA (changement de mot de passe, modal sidebar)
 - [x] **OLYMPUS v0.2.2** : portefeuille — boutons −/+ custom stylisés pour quantité et PRU
+- [x] **BASE BOT** : boucle LLM robustifiée — synthèse forcée post-tools, détection doublons, MAX_TOOL_ITERATIONS 5→8
+- [x] **FEMTO** : fix rapport quotidien (system prompt MODE RAPPORT — plus de listing d'outils fictifs)
+- [x] **DOCKER** : fix TZ Europe/Paris appliqué à tous les services (briefing + rapport à la bonne heure)
+- [x] **CAUSALITY v2** : MetricsAggregator — métriques glissantes 2h/24h + DriftDetector (4 seuils calibrés)
+- [x] **CAUSALITY v2** : PatternAnalyzer — analyse LLM hebdomadaire (dimanche 20h) sur métadonnées d'échec
+- [x] **CAUSALITY v2** : endpoints `/api/metrics/summary` et `/api/analysis/latest`
+- [x] **FEMTO** : subscriber `asmo.alerts.causality` — drift alerts et rapport hebdo → Discord
+- [x] **FEMTO** : rapport daily enrichi d'une section Santé LLM (Causality)
 - [ ] ALITA : intégration Google Calendar / Nextcloud CalDAV
 - [ ] ALITA : résumé d'actualités via flux RSS
 - [ ] GIORGIO : sync périodique de l'index sémantique
 - [ ] OLYMPUS : notifications push PWA (rappels ALITA, alertes FEMTO)
+- [ ] Persona Finance : décharger Alita des outils financiers avancés

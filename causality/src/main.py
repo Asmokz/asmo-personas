@@ -13,6 +13,8 @@ import uvicorn
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from .aggregator import CausalityAggregator
+from .analyzer import PatternAnalyzer
 from .db.manager import DbManager
 from .hardware import HardwareSampler
 from .subscriber import CausalitySubscriber
@@ -26,6 +28,8 @@ RETENTION_DAYS = int(os.getenv("CAUSALITY_RETENTION_DAYS", "7"))
 PORT = int(os.getenv("CAUSALITY_PORT", "1966"))
 LOG_LEVEL = os.getenv("ASMO_LOG_LEVEL", "INFO")
 LOG_JSON = os.getenv("ASMO_LOG_JSON", "false").lower() == "true"
+OLLAMA_BASE_URL = os.getenv("ASMO_OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+ANALYSIS_MODEL = os.getenv("CAUSALITY_ANALYSIS_MODEL", "ministral-3:14b")
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -52,9 +56,10 @@ logger = structlog.get_logger()
 db = DbManager(DB_PATH)
 hw = HardwareSampler()
 subscriber = CausalitySubscriber(db, hw, REDIS_URL)
+aggregator = CausalityAggregator(db, REDIS_URL)
+analyzer = PatternAnalyzer(db, REDIS_URL, OLLAMA_BASE_URL, ANALYSIS_MODEL)
 
-_sub_task: asyncio.Task | None = None
-_cleanup_task: asyncio.Task | None = None
+_tasks: list[asyncio.Task] = []
 
 
 async def _daily_cleanup() -> None:
@@ -69,18 +74,28 @@ async def _daily_cleanup() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _sub_task, _cleanup_task
+    global _tasks
     await db.init()
     await db.cleanup_old(RETENTION_DAYS)
-    _sub_task = asyncio.create_task(subscriber.run())
-    _cleanup_task = asyncio.create_task(_daily_cleanup())
-    logger.info("causality_started", port=PORT, retention_days=RETENTION_DAYS)
+    _tasks = [
+        asyncio.create_task(subscriber.run(), name="causality-subscriber"),
+        asyncio.create_task(_daily_cleanup(), name="causality-cleanup"),
+        asyncio.create_task(aggregator.run(), name="causality-aggregator"),
+        asyncio.create_task(analyzer.run(), name="causality-analyzer"),
+    ]
+    logger.info(
+        "causality_started",
+        port=PORT,
+        retention_days=RETENTION_DAYS,
+        analysis_model=ANALYSIS_MODEL,
+    )
     yield
     await subscriber.stop()
-    if _sub_task:
-        _sub_task.cancel()
-    if _cleanup_task:
-        _cleanup_task.cancel()
+    await aggregator.stop()
+    await analyzer.stop()
+    for t in _tasks:
+        if not t.done():
+            t.cancel()
     await db.close()
     logger.info("causality_stopped")
 
@@ -99,6 +114,22 @@ async def get_exchanges(
 ):
     rows = await db.list_exchanges(limit, offset, persona)
     return JSONResponse(rows)
+
+
+@app.get("/api/metrics/summary")
+async def get_metrics_summary():
+    """Return current 2h metrics, 24h baseline, and active drift alerts."""
+    summary = await aggregator.get_summary()
+    return JSONResponse(summary)
+
+
+@app.get("/api/analysis/latest")
+async def get_latest_analysis():
+    """Return the most recent weekly PatternAnalyzer report."""
+    result = await db.get_latest_analysis()
+    if not result:
+        return JSONResponse({"report": None, "created_at": None})
+    return JSONResponse(result)
 
 
 @app.get("/health")

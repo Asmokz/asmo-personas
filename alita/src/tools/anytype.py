@@ -61,7 +61,7 @@ class AnytypeTool:
             obj = data.get("object", {})
             obj_id = obj.get("id", "?")
             return (
-                f"✅ Note créée dans Anytype : **{title}**\n"
+                f"✅ Note créée dans Anytype (HTTP 201) : **{title}**\n"
                 f"🔑 ID : `{obj_id}`"
             )
         except Exception as exc:
@@ -171,13 +171,14 @@ class AnytypeTool:
                         return f"❌ Objet `{object_id}` introuvable dans Anytype."
                     if resp.status not in (200, 201, 204):
                         return f"❌ Erreur Anytype {resp.status} : {raw[:300]}"
+                    http_status = resp.status
                     try:
                         data = __import__("json").loads(raw) if raw.strip() else {}
                     except Exception:
                         data = {}
             obj = data.get("object", {})
             name = obj.get("name") or title or object_id
-            return f"✅ Objet Anytype mis à jour : **{name}** (`{object_id}`)"
+            return f"✅ Objet Anytype mis à jour (HTTP {http_status}) : **{name}** (`{object_id}`)"
         except Exception as exc:
             logger.error("anytype_update_error", error=str(exc))
             return f"❌ Erreur mise à jour Anytype : {exc}"

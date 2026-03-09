@@ -15,6 +15,7 @@ from asmo_commons.tools.executor import CommandExecutor
 from asmo_commons.tools.registry import ToolDefinition, ToolRegistry
 
 from .persona import get_system_prompt
+from .pubsub.subscriber import FemtoCausalitySubscriber
 from .scheduler import FemtoScheduler
 from .tools.system_metrics import SystemMetrics
 from .tools.docker_status import DockerStatus
@@ -64,6 +65,7 @@ class FemtoBot(BaseBot):
 
         # Scheduler (started in setup_hook when event loop is running)
         self._scheduler = FemtoScheduler(self)
+        self._causality_subscriber = FemtoCausalitySubscriber(self)
 
     # ------------------------------------------------------------------
     # BaseBot interface
@@ -259,6 +261,10 @@ class FemtoBot(BaseBot):
             logger.info("femto_pubsub_connected")
         except Exception as exc:
             logger.warning("femto_pubsub_unavailable", error=str(exc))
+        try:
+            await self._causality_subscriber.start(self.settings.asmo_redis_url)
+        except Exception as exc:
+            logger.warning("causality_subscriber_unavailable", error=str(exc))
         await super().setup_hook()
 
     async def close(self) -> None:
@@ -267,6 +273,7 @@ class FemtoBot(BaseBot):
             await self.pubsub.disconnect()
         except Exception:
             pass
+        await self._causality_subscriber.stop()
         await self.ollama.close()
         await super().close()
 

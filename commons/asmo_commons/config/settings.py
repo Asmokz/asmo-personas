@@ -69,6 +69,7 @@ class FemtoSettings(BaseAsmoSettings):
     femto_max_log_lines: int = 50
     femto_cmd_timeout: int = 10
     femto_history_report_hour: int = 9  # daily report at 9h00
+    femto_causality_url: str = "http://causality:1966"
 
 
 class AlitaSettings(BaseAsmoSettings):

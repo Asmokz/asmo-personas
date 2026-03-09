@@ -21,7 +21,7 @@ logger = structlog.get_logger()
 # Discord hard limit per message
 DISCORD_MAX_LEN = 1990
 # Maximum tool-calling iterations per user turn
-MAX_TOOL_ITERATIONS = 5
+MAX_TOOL_ITERATIONS = 8
 MAX_TOOL_CALLS_PER_TURN = 5
 # Conversation history depth per channel (messages kept)
 HISTORY_MAX = 20
@@ -179,6 +179,8 @@ class BaseBot(commands.Bot, ABC):
 
         nudge_injected = False
         tools_called_names: list[str] = []
+        # Tracks (tool_name, args_json) to detect identical repeated calls
+        seen_tool_call_keys: set[str] = set()
         try:
             for iteration in range(MAX_TOOL_ITERATIONS):
                 turn_t0 = time.monotonic()
@@ -219,7 +221,7 @@ class BaseBot(commands.Bot, ABC):
                     llm_ms=llm_ms,
                 )
 
-                # No tool calls → final text response
+                # ── No tool calls → final text response ───────────────────
                 if not tool_calls:
                     reply_text = response_msg.get("content", "").strip()
                     if reply_text:
@@ -247,8 +249,58 @@ class BaseBot(commands.Bot, ABC):
                         )
                         return
 
-                    # Empty response — retry once with a nudge
-                    logger.warning("empty_llm_response", turn=iteration + 1)
+                    # Empty content after tool calls → force text synthesis
+                    # via chat() (no tools) rather than burning another iteration
+                    logger.warning(
+                        "empty_llm_response",
+                        turn=iteration + 1,
+                        tools_ran=total_tool_calls,
+                    )
+                    if total_tool_calls > 0:
+                        logger.info("forcing_synthesis", turn=iteration + 1)
+                        try:
+                            final = await self.ollama.chat(
+                                messages=list(history),
+                                system_prompt=system_prompt,
+                                conv_id=conv_id,
+                            )
+                        except Exception as exc:
+                            logger.error("synthesis_error", error=str(exc))
+                            await message.channel.send(
+                                f"⚠️ Erreur de synthèse : `{exc}`"
+                            )
+                            return
+                        final = (final or "").strip()
+                        if final:
+                            history.append({"role": "assistant", "content": final})
+                            await send_long_message(message.channel, final)
+                            total_ms = round((time.monotonic() - t0) * 1000)
+                            await self._on_final_response(message, final)
+                            meta = {
+                                "model": self.ollama.model,
+                                "conv_id": conv_id,
+                                "turns": iteration + 1,
+                                "total_ms": total_ms,
+                                "tools_called": tools_called_names,
+                                "reply_len": len(final),
+                            }
+                            await self._on_exchange_complete(
+                                message, list(history), meta
+                            )
+                            logger.info(
+                                "llm_done",
+                                total_ms=total_ms,
+                                turns=iteration + 1,
+                                tool_calls=total_tool_calls,
+                                reply_len=len(final),
+                            )
+                        else:
+                            await message.channel.send(
+                                "_(aucune réponse du LLM après synthèse)_"
+                            )
+                        return
+
+                    # No tools called yet and empty → nudge once
                     if not nudge_injected:
                         nudge_injected = True
                         history.append({
@@ -273,7 +325,7 @@ class BaseBot(commands.Bot, ABC):
                     )
                     return
 
-                # Execute tool calls
+                # ── Tool calls requested ───────────────────────────────────
                 if len(tool_calls) > MAX_TOOL_CALLS_PER_TURN:
                     logger.warning(
                         "tool_calls_capped",
@@ -281,6 +333,33 @@ class BaseBot(commands.Bot, ABC):
                         capped=MAX_TOOL_CALLS_PER_TURN,
                     )
                     tool_calls = tool_calls[:MAX_TOOL_CALLS_PER_TURN]
+
+                # Loop detection: check for identical (tool, args) pairs
+                first_duplicate = None
+                for tc in tool_calls:
+                    fn_name = tc.get("function", {}).get("name", "unknown")
+                    fn_args = parse_tool_arguments(tc)
+                    call_key = f"{fn_name}:{json.dumps(fn_args, sort_keys=True)}"
+                    if call_key in seen_tool_call_keys:
+                        first_duplicate = fn_name
+                        break
+
+                if first_duplicate:
+                    logger.warning(
+                        "duplicate_tool_call_blocked",
+                        name=first_duplicate,
+                        turn=iteration + 1,
+                    )
+                    history.append({
+                        "role": "user",
+                        "content": (
+                            f"Tu as déjà exécuté `{first_duplicate}` avec ces arguments — "
+                            "son résultat est déjà dans le contexte ci-dessus. "
+                            "Ne répète pas le même outil. "
+                            "Synthétise toutes les informations obtenues et réponds directement."
+                        ),
+                    })
+                    continue
 
                 history.append(
                     {
@@ -294,6 +373,8 @@ class BaseBot(commands.Bot, ABC):
                     fn_name = tc.get("function", {}).get("name", "unknown")
                     fn_args = parse_tool_arguments(tc)
                     tc_id = tc.get("id", f"call_{iteration}_{fn_name}")
+                    call_key = f"{fn_name}:{json.dumps(fn_args, sort_keys=True)}"
+                    seen_tool_call_keys.add(call_key)
                     total_tool_calls += 1
 
                     logger.info(
