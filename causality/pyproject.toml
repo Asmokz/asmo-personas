@@ -15,6 +15,7 @@ dependencies = [
     "psutil>=5.9",
     "pynvml>=11.5",
     "structlog>=23.3",
+    "aiohttp>=3.9",
 ]
 
 [tool.hatch.build.targets.wheel]
