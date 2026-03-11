@@ -45,14 +45,13 @@ RUN pip install --no-cache-dir \
     beautifulsoup4>=4.12.0
 
 # 3. Copy all source trees (all accessed via PYTHONPATH=/app)
-COPY olympus/src/ /app/olympus/src/
-COPY alita/src/   /app/alita/src/
-COPY femto/src/   /app/femto/src/
-COPY giorgio/src/ /app/giorgio/src/
-
-# 3b. Install vegas as a package (gives access to vegas.src.*)
-COPY vegas/ /vegas/
-RUN pip install --no-cache-dir /vegas/
+COPY olympus/src/    /app/olympus/src/
+COPY alita/src/      /app/alita/src/
+COPY femto/src/      /app/femto/src/
+COPY giorgio/src/    /app/giorgio/src/
+COPY vegas/src/      /app/vegas/src/
+COPY vegas/knowledge/ /app/vegas/knowledge/
+COPY vegas/data/     /app/vegas/data/
 
 # 4. Copy built Vue.js frontend
 # Pre-build with: cd olympus/frontend && npm install && npm run build

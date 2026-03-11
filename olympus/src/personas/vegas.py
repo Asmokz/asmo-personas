@@ -33,10 +33,10 @@ from .base import OlympusPersona
 logger = structlog.get_logger()
 
 _KNOWLEDGE_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "..", "..", "..", "vegas", "knowledge"
+    os.path.dirname(__file__), "..", "..", "..", "vegas", "knowledge"
 )
 _TICKERS_CSV = os.path.join(
-    os.path.dirname(__file__), "..", "..", "..", "..", "vegas", "data", "pea_tickers.csv"
+    os.path.dirname(__file__), "..", "..", "..", "vegas", "data", "pea_tickers.csv"
 )
 
 
