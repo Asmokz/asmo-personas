@@ -13,6 +13,7 @@ from giorgio.src.tools.jellyfin_client import JellyfinClient
 from giorgio.src.tools.library_index import LibraryIndex
 from giorgio.src.tools.recommendations import RecommendationEngine
 from giorgio.src.tools.web_search import WebSearchTool
+from giorgio.src.db import service as db_service
 from giorgio.src.tools.stats_tools import (
     get_global_statistics,
     get_most_watched_contents,
@@ -70,7 +71,8 @@ class GiorgioPersona(OlympusPersona):
         return self._registry
 
     async def init(self) -> None:
-        """Initialise the semantic library index."""
+        """Initialise DB connection and semantic library index."""
+        db_service.init_db(self.settings.db_url)
         await self.library_index.init()
 
     def _register_tools(self) -> None:

@@ -107,8 +107,7 @@ class AlitaPersona(OlympusPersona):
     async def _refresh_prompt(self) -> None:
         try:
             prefs = await self.db.list_preferences()
-            reminders = await self.db.get_pending_reminders()
-            self._cached_system_prompt = build_system_prompt(prefs, reminders)
+            self._cached_system_prompt = build_system_prompt(prefs)
         except Exception as exc:
             logger.warning("prompt_refresh_failed", error=str(exc))
 
