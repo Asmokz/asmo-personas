@@ -22,9 +22,12 @@ CREATE TABLE IF NOT EXISTS knowledge_vectors (
     chunk_idx INTEGER NOT NULL,
     content TEXT NOT NULL,
     embedding TEXT NOT NULL,
-    indexed_at TEXT NOT NULL
+    indexed_at TEXT NOT NULL,
+    file_hash TEXT
 );
 """
+
+_MIGRATE_KNOWLEDGE_HASH = "ALTER TABLE knowledge_vectors ADD COLUMN file_hash TEXT"
 
 _CREATE_MARKET_INTEL = """
 CREATE TABLE IF NOT EXISTS market_intel_vectors (
@@ -45,10 +48,15 @@ class VectorsDB:
         self._db_path = db_path
 
     async def init(self) -> None:
-        """Crée les tables si elles n'existent pas."""
+        """Crée les tables si elles n'existent pas et applique les migrations."""
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(_CREATE_KNOWLEDGE)
             await db.execute(_CREATE_MARKET_INTEL)
+            # Migration : ajouter file_hash si absent (idempotent)
+            try:
+                await db.execute(_MIGRATE_KNOWLEDGE_HASH)
+            except Exception:
+                pass  # colonne déjà présente
             await db.commit()
         logger.info("vectors_db_initialized", path=self._db_path)
 
@@ -65,22 +73,33 @@ class VectorsDB:
                 row = await cur.fetchone()
         return (row[0] if row else 0) > 0
 
+    async def get_knowledge_hash(self, source: str) -> Optional[str]:
+        """Retourne le hash MD5 stocké pour une source, ou None si absent."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT file_hash FROM knowledge_vectors WHERE source = ? LIMIT 1",
+                (source,),
+            ) as cur:
+                row = await cur.fetchone()
+        return row[0] if row else None
+
     async def save_knowledge_chunk(
         self,
         source: str,
         chunk_idx: int,
         content: str,
         embedding: list[float],
+        file_hash: Optional[str] = None,
     ) -> None:
         """Persiste un chunk de knowledge avec son embedding."""
         now = datetime.now(timezone.utc).isoformat()
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 """
-                INSERT INTO knowledge_vectors (source, chunk_idx, content, embedding, indexed_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO knowledge_vectors (source, chunk_idx, content, embedding, indexed_at, file_hash)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (source, chunk_idx, content, json.dumps(embedding), now),
+                (source, chunk_idx, content, json.dumps(embedding), now, file_hash),
             )
             await db.commit()
 

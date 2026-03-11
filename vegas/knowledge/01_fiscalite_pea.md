@@ -1,5 +1,13 @@
 # Fiscalité et Réglementation du PEA
 
+## Profil du détenteur — Asmo
+
+Le PEA appartenant à Asmo a été ouvert en **octobre 2024**. Cette date est critique pour toute analyse fiscale :
+- Les 5 ans d'ancienneté seront atteints en **octobre 2029** — c'est à partir de cette date que les retraits seront exonérés d'IR.
+- Tout retrait avant octobre 2029 entraîne la clôture du PEA et une imposition au PFU de 30 %.
+- En mars 2026 (date actuelle), le PEA a environ **17 mois d'ancienneté** — on est dans la phase critique où un retrait serait très coûteux fiscalement.
+- La stratégie recommandée est donc de ne pas toucher au capital avant octobre 2029 et de se concentrer sur la croissance du portefeuille.
+
 ## Qu'est-ce que le PEA ?
 
 Le Plan d'Épargne en Actions (PEA) est une enveloppe fiscale française permettant d'investir en actions européennes avec un avantage fiscal significatif après 5 ans de détention. Il existe deux types : le PEA classique (plafond 150 000 €) et le PEA-PME (plafond 225 000 €, dédié aux PME et ETI européennes). Les deux sont cumulables pour un plafond global de 225 000 €.

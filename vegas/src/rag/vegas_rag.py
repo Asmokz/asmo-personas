@@ -7,6 +7,7 @@ La recherche fusionne les deux couches avec recency weight sur la couche 2.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
@@ -33,7 +34,8 @@ _CHUNK_MAX_TOKENS = 500    # environ 500 tokens ≈ 375 mots
 _CHUNK_OVERLAP_TOKENS = 50  # chevauchement entre chunks
 _WORDS_PER_TOKEN = 0.75    # estimation : 1 token ≈ 0.75 mot
 
-_SIMILARITY_THRESHOLD = 0.55  # seuil cosine minimum
+_SIMILARITY_THRESHOLD_KNOWLEDGE = 0.60  # knowledge statique — contenu structuré, seuil plus sélectif
+_SIMILARITY_THRESHOLD_INTEL = 0.55      # market intel dynamique — texte journalistique, plus tolérant
 
 
 def _get_recency_weight(created_at: str) -> float:
@@ -114,16 +116,25 @@ class VegasRAG:
         indexed = 0
         for filename in md_files:
             filepath = os.path.join(self._knowledge_dir, filename)
-            if await self._db.knowledge_exists(filename):
-                logger.debug("knowledge_already_indexed", source=filename)
-                continue
             try:
                 with open(filepath, encoding="utf-8") as fh:
                     text = fh.read()
+                file_hash = hashlib.md5(text.encode()).hexdigest()
+
+                stored_hash = await self._db.get_knowledge_hash(filename)
+                if stored_hash == file_hash:
+                    logger.debug("knowledge_already_indexed", source=filename)
+                    continue
+
+                if stored_hash is not None:
+                    # Contenu modifié — réindexation
+                    await self._db.delete_knowledge_source(filename)
+                    logger.info("knowledge_reindexing", source=filename)
+
                 chunks = _chunk_text(text, filename)
                 for i, chunk in enumerate(chunks):
                     embedding = await self._ollama.embed(chunk, model=self._embed_model)
-                    await self._db.save_knowledge_chunk(filename, i, chunk, embedding)
+                    await self._db.save_knowledge_chunk(filename, i, chunk, embedding, file_hash)
                 logger.info(
                     "knowledge_indexed",
                     source=filename,
@@ -162,7 +173,7 @@ class VegasRAG:
                     if v_norm == 0:
                         continue
                     cosine = float(np.dot(q, vec) / (q_norm * v_norm))
-                    if cosine < _SIMILARITY_THRESHOLD:
+                    if cosine < _SIMILARITY_THRESHOLD_KNOWLEDGE:
                         continue
                     scored.append((cosine, {**row, "_layer": "knowledge"}))
                 except Exception:
@@ -179,7 +190,7 @@ class VegasRAG:
                     if v_norm == 0:
                         continue
                     cosine = float(np.dot(q, vec) / (q_norm * v_norm))
-                    if cosine < _SIMILARITY_THRESHOLD:
+                    if cosine < _SIMILARITY_THRESHOLD_INTEL:
                         continue
                     recency = _get_recency_weight(row.get("created_at", ""))
                     if recency == 0.0:
