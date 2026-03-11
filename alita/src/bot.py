@@ -42,7 +42,6 @@ from .tools.anytype import AnytypeTool
 from .tools.fetch_url import FetchUrlTool
 from .tools.long_term_memory import LongTermMemory
 from .tools.memory import MemoryTool
-from .tools.stocks import StocksTool
 from .tools.weather import WeatherTool
 from .tools.web_search import WebSearchTool
 
@@ -73,7 +72,6 @@ class AlitaBot(BaseBot):
 
         # Tools
         self.weather = WeatherTool(settings.alita_weather_api_key, settings.alita_weather_city)
-        self.stocks = StocksTool(self.db)
         self.web_search = WebSearchTool(settings.alita_searxng_url)
         self.memory = MemoryTool(self.db)
         self.ltm = LongTermMemory(self.db, self.ollama, settings.alita_embed_model)
@@ -266,120 +264,6 @@ class AlitaBot(BaseBot):
         )
         async def weather_moto(city: str | None = None, target_date: str | None = None) -> str:
             return await self.weather.should_i_ride(city, target_date)
-
-        # --- Stocks ---
-        @reg.register(
-            "portfolio_summary",
-            "Retourne le résumé du portefeuille boursier avec les performances et P&L.",
-        )
-        async def portfolio_summary() -> str:
-            return await self.stocks.get_portfolio_summary()
-
-        @reg.register(
-            "portfolio_quote",
-            "Retourne le cours actuel d'une action (ex: AAPL, MSFT, MC.PA).",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "symbol": {"type": "string", "description": "Ticker boursier (ex: AAPL)"},
-                },
-                "required": ["symbol"],
-            },
-        )
-        async def portfolio_quote(symbol: str) -> str:
-            return await self.stocks.get_stock_quote(symbol)
-
-        @reg.register(
-            "portfolio_update",
-            "Met à jour une position dans le portefeuille boursier persistant. "
-            "Utilise action='buy' pour un achat (recalcule le PRU), 'sell' pour une vente (réduit les parts, "
-            "supprime la ligne si tout est vendu), 'set' pour forcer les valeurs (corrections manuelles). "
-            "Appelle TOUJOURS cet outil quand Asmo annonce un achat ou une vente d'actions.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "symbol": {
-                        "type": "string",
-                        "description": "Ticker boursier exact (ex: AI.PA pour Air Liquide, AIR.PA pour Airbus)",
-                    },
-                    "action": {
-                        "type": "string",
-                        "enum": ["buy", "sell", "set"],
-                        "description": "buy=achat, sell=vente, set=correction manuelle",
-                    },
-                    "shares": {
-                        "type": "number",
-                        "description": "Nombre d'actions concernées",
-                    },
-                    "price": {
-                        "type": "number",
-                        "description": "Prix unitaire en euros",
-                    },
-                    "label": {
-                        "type": "string",
-                        "description": "Nom lisible de l'action (ex: 'Air Liquide'). Optionnel si déjà connu.",
-                    },
-                },
-                "required": ["symbol", "action", "shares", "price"],
-            },
-        )
-        async def portfolio_update(
-            symbol: str,
-            action: str,
-            shares: float,
-            price: float,
-            label: Optional[str] = None,
-        ) -> str:
-            symbol = symbol.upper()
-            existing = await self.db.get_position(symbol)
-
-            if action == "set":
-                await self.db.upsert_position(symbol, shares, price, label)
-                lbl = label or (existing and existing["label"]) or symbol
-                return (
-                    f"✅ Position {symbol} ({lbl}) forcée : {shares:.0f} actions à {price:.2f}€ de PRU."
-                )
-
-            elif action == "buy":
-                if existing:
-                    total_shares = existing["shares"] + shares
-                    new_avg = (existing["shares"] * existing["avg_price"] + shares * price) / total_shares
-                    await self.db.upsert_position(symbol, total_shares, new_avg, label)
-                    lbl = label or existing["label"] or symbol
-                    return (
-                        f"✅ Achat enregistré — {symbol} ({lbl}) : +{shares:.0f} actions à {price:.2f}€. "
-                        f"Total : {total_shares:.0f} actions | Nouveau PRU : {new_avg:.2f}€."
-                    )
-                else:
-                    await self.db.upsert_position(symbol, shares, price, label)
-                    lbl = label or symbol
-                    return (
-                        f"✅ Nouvelle position — {symbol} ({lbl}) : {shares:.0f} actions à {price:.2f}€."
-                    )
-
-            elif action == "sell":
-                if not existing:
-                    return f"❌ Position {symbol} introuvable dans le portefeuille."
-                if shares > existing["shares"]:
-                    return (
-                        f"❌ Impossible : tu n'as que {existing['shares']:.0f} actions {symbol}, "
-                        f"pas {shares:.0f}."
-                    )
-                new_shares = existing["shares"] - shares
-                lbl = label or existing["label"] or symbol
-                if new_shares == 0:
-                    await self.db.delete_position(symbol)
-                    return (
-                        f"✅ Position {symbol} ({lbl}) clôturée — toutes les actions vendues à {price:.2f}€."
-                    )
-                else:
-                    await self.db.upsert_position(symbol, new_shares, existing["avg_price"], label)
-                    return (
-                        f"✅ Vente enregistrée — {symbol} ({lbl}) : -{shares:.0f} actions à {price:.2f}€. "
-                        f"Restant : {new_shares:.0f} actions | PRU inchangé : {existing['avg_price']:.2f}€."
-                    )
-
-            return f"❌ Action inconnue : {action}. Utilise buy, sell ou set."
 
         # --- Web Search ---
         @reg.register(

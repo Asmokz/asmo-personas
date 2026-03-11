@@ -19,7 +19,6 @@ from alita.src.tools.anytype import AnytypeTool
 from alita.src.tools.fetch_url import FetchUrlTool
 from alita.src.tools.long_term_memory import LongTermMemory
 from alita.src.tools.memory import MemoryTool
-from alita.src.tools.stocks import StocksTool
 from alita.src.tools.weather import WeatherTool
 from alita.src.tools.web_search import WebSearchTool
 
@@ -69,7 +68,6 @@ class AlitaPersona(OlympusPersona):
         self.db = AlitaDbManager(settings.alita_db_path)
 
         self.weather = WeatherTool(settings.alita_weather_api_key, settings.alita_weather_city)
-        self.stocks = StocksTool(self.db)
         self.web_search_tool = WebSearchTool(settings.alita_searxng_url)
         self.memory = MemoryTool(self.db)
         self.ltm = LongTermMemory(self.db, self.ollama, settings.alita_embed_model)
@@ -258,79 +256,6 @@ class AlitaPersona(OlympusPersona):
         )
         async def should_i_ride(city: str | None = None) -> str:
             return await self.weather.should_i_ride(city)
-
-        # --- Stocks ---
-        @reg.register(
-            "get_portfolio_info",
-            "Retourne le résumé du portefeuille boursier avec les performances et P&L.",
-        )
-        async def get_portfolio_info() -> str:
-            return await self.stocks.get_portfolio_summary()
-
-        @reg.register(
-            "get_stock_quote",
-            "Retourne le cours actuel d'une action (ex: AAPL, MSFT, MC.PA).",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "symbol": {"type": "string"},
-                },
-                "required": ["symbol"],
-            },
-        )
-        async def get_stock_quote(symbol: str) -> str:
-            return await self.stocks.get_stock_quote(symbol)
-
-        @reg.register(
-            "update_portfolio_position",
-            "Met à jour une position dans le portefeuille boursier persistant.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "symbol": {"type": "string"},
-                    "action": {"type": "string", "enum": ["buy", "sell", "set"]},
-                    "shares": {"type": "number"},
-                    "price": {"type": "number"},
-                    "label": {"type": "string"},
-                },
-                "required": ["symbol", "action", "shares", "price"],
-            },
-        )
-        async def update_portfolio_position(
-            symbol: str, action: str, shares: float, price: float, label: Optional[str] = None
-        ) -> str:
-            symbol = symbol.upper()
-            existing = await self.db.get_position(symbol)
-            if action == "set":
-                await self.db.upsert_position(symbol, shares, price, label)
-                lbl = label or (existing and existing["label"]) or symbol
-                return f"✅ Position {symbol} ({lbl}) forcée : {shares:.0f} actions à {price:.2f}€ de PRU."
-            elif action == "buy":
-                if existing:
-                    total_shares = existing["shares"] + shares
-                    new_avg = (existing["shares"] * existing["avg_price"] + shares * price) / total_shares
-                    await self.db.upsert_position(symbol, total_shares, new_avg, label)
-                    lbl = label or existing["label"] or symbol
-                    return (f"✅ Achat enregistré — {symbol} ({lbl}) : +{shares:.0f} actions à {price:.2f}€. "
-                            f"Total : {total_shares:.0f} actions | Nouveau PRU : {new_avg:.2f}€.")
-                else:
-                    await self.db.upsert_position(symbol, shares, price, label)
-                    return f"✅ Nouvelle position — {symbol} ({label or symbol}) : {shares:.0f} actions à {price:.2f}€."
-            elif action == "sell":
-                if not existing:
-                    return f"❌ Position {symbol} introuvable dans le portefeuille."
-                if shares > existing["shares"]:
-                    return f"❌ Impossible : tu n'as que {existing['shares']:.0f} actions {symbol}."
-                new_shares = existing["shares"] - shares
-                lbl = label or existing["label"] or symbol
-                if new_shares == 0:
-                    await self.db.delete_position(symbol)
-                    return f"✅ Position {symbol} ({lbl}) clôturée — toutes les actions vendues à {price:.2f}€."
-                else:
-                    await self.db.upsert_position(symbol, new_shares, existing["avg_price"], label)
-                    return (f"✅ Vente enregistrée — {symbol} ({lbl}) : -{shares:.0f} actions à {price:.2f}€. "
-                            f"Restant : {new_shares:.0f} actions | PRU inchangé : {existing['avg_price']:.2f}€.")
-            return f"❌ Action inconnue : {action}."
 
         # --- Web Search ---
         @reg.register(

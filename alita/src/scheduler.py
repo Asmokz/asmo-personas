@@ -69,11 +69,9 @@ class AlitaScheduler:
             (
                 weather_str,
                 moto_str,
-                portfolio_str,
             ) = await asyncio.gather(
                 _safe(bot.weather.get_current_weather()),
                 _safe(bot.weather.should_i_ride()),
-                _safe(bot.stocks.get_portfolio_summary()),
                 return_exceptions=False,
             )
 
@@ -86,7 +84,6 @@ class AlitaScheduler:
                 date=now_str,
                 weather=weather_str,
                 moto=moto_str,
-                portfolio=portfolio_str,
                 system_alerts=system_alerts_str,
             )
 
@@ -133,14 +130,12 @@ def _build_briefing_prompt(
     date: str,
     weather: str,
     moto: str,
-    portfolio: str,
     system_alerts: str,
 ) -> str:
     return (
         f"Génère le briefing matinal pour le **{date}**.\n\n"
         f"## Météo\n{weather}\n\n"
         f"## Moto\n{moto}\n\n"
-        f"## Portefeuille\n{portfolio}\n\n"
         f"## Alertes système (FEMTO)\n{system_alerts}\n\n"
         "Synthétise ces données en un briefing naturel et utile en français. "
         "Commence par ce qui est le plus important. Sois concis mais complet."
