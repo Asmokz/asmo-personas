@@ -79,12 +79,16 @@ class AlitaScheduler:
             system_events = await bot._subscriber.get_recent_system_events(limit=10)
             system_alerts_str = _format_system_events(system_events)
 
+            finance_events = await bot._subscriber.get_recent_finance_events(limit=10)
+            finance_alerts_str = _format_finance_events(finance_events)
+
             # Build the briefing prompt
             prompt = _build_briefing_prompt(
                 date=now_str,
                 weather=weather_str,
                 moto=moto_str,
                 system_alerts=system_alerts_str,
+                finance_alerts=finance_alerts_str,
             )
 
             try:
@@ -126,16 +130,32 @@ def _format_system_events(events: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _format_finance_events(events: list[dict]) -> str:
+    if not events:
+        return "Aucune alerte financière depuis hier."
+    lines = []
+    for e in events[:5]:
+        ts = e.get("timestamp", "")[:19]
+        data = e.get("data", {})
+        alert_type = data.get("alert_type", "")
+        msg = data.get("message", str(data))
+        emoji = "📈" if "opportunit" in alert_type.lower() else "⚠️"
+        lines.append(f"{emoji} [{ts}] {msg}")
+    return "\n".join(lines)
+
+
 def _build_briefing_prompt(
     date: str,
     weather: str,
     moto: str,
     system_alerts: str,
+    finance_alerts: str,
 ) -> str:
     return (
         f"Génère le briefing matinal pour le **{date}**.\n\n"
         f"## Météo\n{weather}\n\n"
         f"## Moto\n{moto}\n\n"
+        f"## Alertes financières (VEGAS)\n{finance_alerts}\n\n"
         f"## Alertes système (FEMTO)\n{system_alerts}\n\n"
         "Synthétise ces données en un briefing naturel et utile en français. "
         "Commence par ce qui est le plus important. Sois concis mais complet."
