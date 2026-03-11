@@ -1,12 +1,13 @@
 # ASMO Personas
 
-Quatre services IA autonomes pour le homelab **ASMO-01** : trois personas conversationnels, une gateway API/PWA, et un middleware d'observabilité LLM.
+Cinq services IA autonomes pour le homelab **ASMO-01** : quatre personas conversationnels, une gateway API/PWA, et un middleware d'observabilité LLM.
 
 | Service | Rôle | Port | Statut |
 |---------|------|------|--------|
 | **FEMTO** | Monitoring système & Docker | Discord | ✅ Fonctionnel |
 | **GIORGIO** | Médias, notations Jellyfin & recommandations | Discord + `:5555` | ✅ Fonctionnel |
 | **ALITA** | Assistante personnelle & briefing matinal | Discord + Olympus | ✅ Fonctionnel |
+| **VEGAS** | Analyste financier PEA — screening, analyse, rapport | Discord + Olympus | ✅ Fonctionnel |
 | **OLYMPUS** | Gateway API + PWA Vue.js (auth JWT) | `:8484` | ✅ Fonctionnel |
 | **CAUSALITY** | Observabilité LLM (payloads, latences, GPU) | `:1966` | ✅ Fonctionnel |
 
@@ -32,12 +33,22 @@ asmo-personas/
 ├── alita/                # Persona assistante (Discord + Olympus)
 │   └── scripts/
 │       └── label_training.py   # Labelling interactif des échanges (SFT/DPO)
+├── vegas/                # Persona analyste financier PEA (Discord + Olympus)
+│   ├── knowledge/               # 6 fichiers Markdown de base de connaissance (RAG statique)
+│   ├── data/pea_tickers.csv     # 32 tickers PEA initiaux (Paris, Amsterdam, Bruxelles, etc.)
+│   └── src/
+│       ├── rag/vegas_rag.py     # VegasRAG — knowledge statique + market intel dynamique
+│       ├── db/                  # market_db.py (pea_stocks) + vectors_db.py (RAG)
+│       ├── tools/               # screen, analyse, comparaison, secteur, news, portfolio, backtest
+│       ├── cron/market_sync.py  # yfinance batch + scraping news + purge chunks > 30j
+│       ├── scheduler.py         # rapport PEA 18h lun-ven + sync marché 8h
+│       └── pubsub/publisher.py  # publie sur asmo.finance.alerts
 ├── olympus/              # Gateway HTTP/WebSocket + PWA Vue.js
 │   ├── src/
 │   │   ├── main.py              # FastAPI app (lifespan, CORS, static)
 │   │   ├── routers/             # chat, conversations, personas, feedback, voice
 │   │   ├── auth/                # JWT auth — router, db, schemas, security, dependencies
-│   │   ├── personas/            # AlitaPersona, FemtoPersona, GiorgioPersona
+│   │   ├── personas/            # AlitaPersona, FemtoPersona, GiorgioPersona, VegasPersona
 │   │   ├── db/                  # OlympusDB (conversations + historique SQLite)
 │   │   └── stt/                 # faster-whisper (transcription vocale CPU/int8)
 │   └── frontend/                # Vue 3 + Vite + Pinia + Vue Router 4 + PWA
@@ -59,13 +70,14 @@ asmo-personas/
 └── .env.example
 ```
 
-**Stack** : Python 3.11 · FastAPI · Vue 3 · Vite · Pinia · Ollama · Redis · Docker Compose · aiosqlite · yfinance · faster-whisper · numpy · pynvml · psutil
+**Stack** : Python 3.11 · FastAPI · Vue 3 · Vite · Pinia · Ollama · Redis · Docker Compose · aiosqlite · yfinance · BeautifulSoup4 · faster-whisper · numpy · pynvml · psutil
 
 ### Flux inter-services (Redis pub/sub)
 
 ```
 FEMTO  ──► asmo.alerts.system    ──► ALITA (bufferisé pour le briefing)
 GIORGIO ──► asmo.media.rated     ──► ALITA (bufferisé pour le briefing)
+VEGAS  ──► asmo.finance.alerts   ──► ALITA (bufferisé pour le briefing)
 
 OllamaClient ──► asmo.causality  ──► CAUSALITY (chaque appel LLM, fire-and-forget)
 
@@ -373,7 +385,7 @@ CAUSALITY_ANALYSIS_MODEL=ministral-3:14b
   ollama pull ministral-3:14b   # tous les personas
   ollama pull nomic-embed-text  # ALITA (LTM RAG) + GIORGIO (index sémantique)
   ```
-- Pour les bots Discord : trois applications Discord créées sur <https://discord.com/developers/applications>
+- Pour les bots Discord : quatre applications Discord créées sur <https://discord.com/developers/applications>
   (un token par bot)
 
 ---
@@ -643,6 +655,86 @@ corrige ma position AIR.PA : 3 actions à 186€ de PRU
 
 ---
 
+## Utilisation de VEGAS
+
+VEGAS est un analyste financier rigoureux spécialisé PEA. Il répond à **tous les messages** sur son canal dédié (`VEGAS_DISCORD_CHANNEL_ID`) sans nécessiter de mention, et poste automatiquement un rapport de performance chaque soir en semaine.
+
+> ⚠️ VEGAS présente des faits et métriques. Il ne donne jamais de conseil d'achat ou de vente direct — disclaimer légal systématique.
+
+### Rapport PEA automatique
+
+Chaque jour ouvré à 18h00 (configurable via `VEGAS_REPORT_HOUR`), VEGAS collecte et analyse :
+
+- **Performance du jour** : valorisation totale du PEA, +/- vs veille
+- **Gagnants / perdants** du jour parmi les positions
+- **Contexte marché** : news récentes pertinentes (RAG dynamique)
+- **Alertes** : volatilité anormale, dérives sectorielles
+
+Le rapport est synthétisé par le LLM et posté sur `VEGAS_REPORT_CHANNEL_ID`.
+
+### Messages naturels
+
+```
+@VEGAS analyse ASML
+@VEGAS compare Air Liquide et L'Oréal
+@VEGAS donne-moi les meilleures actions dividendes du CAC 40
+@VEGAS comment se porte le secteur technologie en ce moment ?
+@VEGAS simule un DCA mensuel de 200€ sur CW8 sur 5 ans
+quelles news récentes sur TotalEnergies ?
+dis-moi comment est diversifié mon portefeuille
+```
+
+### Outils LLM (8 outils)
+
+| Outil | Description |
+|-------|-------------|
+| `screen_pea_stocks` | Filtre les actions PEA éligibles par critères fondamentaux (P/E, dividende, bêta, secteur, capitalisation) |
+| `get_stock_analysis` | Analyse détaillée d'un ticker : valorisation (P/E, P/B, EV/EBITDA), dividendes, risque, volatilité annualisée, variation 1j/1m/1a |
+| `compare_stocks` | Tableau comparatif de 2 à 5 tickers côte à côte (métriques clés + classement) |
+| `get_sector_overview` | Vue d'ensemble d'un secteur Euronext : métriques agrégées, top/flop du secteur |
+| `get_market_news` | Recherche dans le RAG dynamique (news financières francophones scrappées quotidiennement) |
+| `portfolio_diagnostic` | Analyse du portefeuille Alita/PEA : P&L, concentration sectorielle, risques, suggestions |
+| `backtest_strategy` | Simulation de stratégie sur historique yfinance : DCA mensuel, buy & hold, momentum MA50 |
+| `web_search` | Recherche web via SearXNG — dernier recours pour données non disponibles dans le RAG |
+
+### RAG à deux couches
+
+**Couche 1 — Knowledge Base (statique)** : 6 fichiers Markdown indexés au démarrage de VEGAS (fiscalité PEA, stratégies DCA/dividendes/value, métriques financières, critères de sélection, marchés Euronext, gestion de portefeuille).
+
+**Couche 2 — Market Intelligence (dynamique)** : articles financiers francophones scrappés quotidiennement à 8h (Zonebourse, Boursorama). Les chunks sont scorés avec un **recency weight** :
+
+| Âge du chunk | Poids |
+|---|---|
+| < 24h | 1.0 |
+| 1–3 jours | 0.8 |
+| 3–7 jours | 0.5 |
+| 7–14 jours | 0.2 |
+| > 14 jours | exclu |
+
+Les chunks de plus de 30 jours sont purgés automatiquement.
+
+### Communication inter-services
+
+VEGAS publie sur `asmo.finance.alerts` quand il détecte :
+- Une action du portefeuille avec volatilité anormale sur la journée
+- Un changement sectoriel significatif
+- Une opportunité correspondant au profil du portefeuille
+
+ALITA s'abonne à ce canal et bufferise les alertes pour les inclure dans le briefing matinal.
+
+### Variables d'environnement
+
+```env
+VEGAS_DISCORD_TOKEN=...
+VEGAS_DISCORD_CHANNEL_ID=...    # canal dédié (répond à tous les msgs sans mention)
+VEGAS_REPORT_CHANNEL_ID=...     # canal pour le rapport 18h
+VEGAS_REPORT_HOUR=18            # heure du rapport (défaut : 18)
+VEGAS_OLLAMA_MODEL=ministral-3:14b
+VEGAS_SEARXNG_URL=http://searxng:8080
+```
+
+---
+
 ## Configuration avancée
 
 ### Modifier le modèle LLM
@@ -651,8 +743,10 @@ corrige ma position AIR.PA : 3 actions à 186€ de PRU
 # .env
 ASMO_OLLAMA_MODEL=ministral-3:14b
 ALITA_OLLAMA_MODEL=ministral-3:14b
+VEGAS_OLLAMA_MODEL=ministral-3:14b
 GIORGIO_EMBED_MODEL=nomic-embed-text
 ALITA_EMBED_MODEL=nomic-embed-text
+VEGAS_EMBED_MODEL=nomic-embed-text
 ```
 
 Modèles recommandés avec tool calling : `ministral-3:14b`, `llama3.1:8b`, `qwen2.5:7b`
@@ -791,8 +885,14 @@ async def nom_de_loutil(param1: str) -> str:
 - [x] **CAUSALITY v2** : endpoints `/api/metrics/summary` et `/api/analysis/latest`
 - [x] **FEMTO** : subscriber `asmo.alerts.causality` — drift alerts et rapport hebdo → Discord
 - [x] **FEMTO** : rapport daily enrichi d'une section Santé LLM (Causality)
+- [x] **VEGAS** : analyste financier PEA — RAG 2 couches (knowledge statique + market intel dynamique)
+- [x] **VEGAS** : screening multi-critères, analyse détaillée, comparaison, backtest
+- [x] **VEGAS** : rapport PEA automatique 18h lun-ven (valorisation, gagnants/perdants, contexte marché)
+- [x] **VEGAS** : cron yfinance batch + scraping news quotidien + purge chunks
+- [x] **VEGAS** : pub/sub `asmo.finance.alerts` → ALITA (briefing matinal)
+- [x] **VEGAS** : intégration Olympus PWA (VegasPersona, couleur `#00C853`)
 - [ ] ALITA : intégration Google Calendar / Nextcloud CalDAV
 - [ ] ALITA : résumé d'actualités via flux RSS
 - [ ] GIORGIO : sync périodique de l'index sémantique
 - [ ] OLYMPUS : notifications push PWA (rappels ALITA, alertes FEMTO)
-- [ ] Persona Finance : décharger Alita des outils financiers avancés
+- [ ] VEGAS : enrichissement du CSV pea_tickers (Xetra, Milan, Madrid)

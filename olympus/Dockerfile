@@ -41,13 +41,18 @@ RUN pip install --no-cache-dir \
     "pydantic-settings>=2.0.0" \
     "python-jose[cryptography]>=3.3.0" \
     bcrypt>=4.0.0 \
-    slowapi>=0.1.9
+    slowapi>=0.1.9 \
+    beautifulsoup4>=4.12.0
 
 # 3. Copy all source trees (all accessed via PYTHONPATH=/app)
 COPY olympus/src/ /app/olympus/src/
 COPY alita/src/   /app/alita/src/
 COPY femto/src/   /app/femto/src/
 COPY giorgio/src/ /app/giorgio/src/
+
+# 3b. Install vegas as a package (gives access to vegas.src.*)
+COPY vegas/ /vegas/
+RUN pip install --no-cache-dir /vegas/
 
 # 4. Copy built Vue.js frontend
 # Pre-build with: cd olympus/frontend && npm install && npm run build

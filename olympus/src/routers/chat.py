@@ -176,7 +176,12 @@ async def chat_stream(
             user_content=content,
             images=images,
         ):
-            await websocket.send_text(json.dumps(event, ensure_ascii=False))
+            try:
+                await websocket.send_text(json.dumps(event, ensure_ascii=False))
+            except Exception:
+                # Client disconnected mid-stream — stop sending but still persist
+                logger.info("ws_send_failed_mid_stream", event_type=event.get("type"))
+                break
             evt_type = event.get("type")
             if evt_type == "token":
                 reply_text += event.get("content", "")
@@ -186,7 +191,7 @@ async def chat_stream(
             elif evt_type == "error":
                 break
 
-        # Persist new messages
+        # Persist new messages — always runs, even if WS disconnected mid-stream
         new_messages = history[history_before_len:]
         if new_messages:
             await db.append_messages(conv_id, new_messages)

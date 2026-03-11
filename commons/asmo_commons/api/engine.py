@@ -20,7 +20,7 @@ from asmo_commons.tools.registry import ToolRegistry
 
 logger = structlog.get_logger()
 
-MAX_TOOL_ITERATIONS = 5
+MAX_TOOL_ITERATIONS = 8
 # Cap tool calls per single LLM response — prevents runaway parallel call generation
 MAX_TOOL_CALLS_PER_TURN = 5
 
@@ -130,6 +130,7 @@ class APIEngine(ABC):
         total_tool_calls = 0
         nudge_injected = False
         tools_called_names: list[str] = []
+        seen_tool_call_keys: set[str] = set()
         entry_id: str = conv_id  # will be overwritten on success
 
         try:
@@ -206,7 +207,27 @@ class APIEngine(ABC):
                         yield {"type": EVT_DONE, "entry_id": entry_id}
                         return
 
-                    # Empty response — retry with a nudge
+                    # Empty response after tool calls — force synthesis without tools
+                    if total_tool_calls > 0:
+                        logger.info("forcing_synthesis", turn=iteration + 1)
+                        try:
+                            final = await self.ollama.chat(
+                                messages=list(history),
+                                system_prompt=system_prompt,
+                                conv_id=conv_id,
+                            )
+                        except Exception as exc:
+                            yield {"type": EVT_ERROR, "message": str(exc)}
+                            return
+                        if final:
+                            history.append({"role": "assistant", "content": final})
+                            yield {"type": EVT_TOKEN, "content": final}
+                            import uuid
+                            entry_id = str(uuid.uuid4())
+                            yield {"type": EVT_DONE, "entry_id": entry_id}
+                            return
+
+                    # Empty response with no prior tool calls — retry with a nudge
                     logger.warning("empty_llm_response", turn=iteration + 1)
                     if not nudge_injected:
                         nudge_injected = True
@@ -232,6 +253,28 @@ class APIEngine(ABC):
                     )
                     tool_calls = tool_calls[:MAX_TOOL_CALLS_PER_TURN]
 
+                # Duplicate tool call detection — prevent re-calling same tool/args
+                first_duplicate = None
+                for tc in tool_calls:
+                    fn_name = tc.get("function", {}).get("name", "unknown")
+                    fn_args = parse_tool_arguments(tc)
+                    call_key = f"{fn_name}:{json.dumps(fn_args, sort_keys=True)}"
+                    if call_key in seen_tool_call_keys:
+                        first_duplicate = fn_name
+                        break
+
+                if first_duplicate:
+                    logger.warning("duplicate_tool_call_blocked", name=first_duplicate)
+                    history.append({
+                        "role": "user",
+                        "content": (
+                            f"Tu as déjà exécuté `{first_duplicate}` avec ces mêmes paramètres. "
+                            "Ne répète pas les mêmes appels d'outils. "
+                            "Synthétise les résultats déjà obtenus et réponds directement."
+                        ),
+                    })
+                    continue
+
                 history.append({
                     "role": "assistant",
                     "content": response_msg.get("content") or "",
@@ -243,6 +286,9 @@ class APIEngine(ABC):
                     fn_args = parse_tool_arguments(tc)
                     tc_id = tc.get("id", f"call_{iteration}_{fn_name}")
                     total_tool_calls += 1
+
+                    call_key = f"{fn_name}:{json.dumps(fn_args, sort_keys=True)}"
+                    seen_tool_call_keys.add(call_key)
 
                     logger.info("tool_call", name=fn_name, args_keys=list(fn_args.keys()))
                     tools_called_names.append(fn_name)

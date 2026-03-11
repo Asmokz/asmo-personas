@@ -1,4 +1,4 @@
-"""Redis subscriber — listens to FEMTO and GIORGIO events."""
+"""Redis subscriber — listens to FEMTO, GIORGIO and VEGAS events."""
 from __future__ import annotations
 
 import asyncio
@@ -16,10 +16,12 @@ logger = structlog.get_logger()
 # Redis channels Alita subscribes to
 CHANNEL_SYSTEM_ALERTS = "asmo.alerts.system"
 CHANNEL_MEDIA_RATED = "asmo.media.rated"
+CHANNEL_FINANCE_ALERTS = "asmo.finance.alerts"
 
 # Redis list keys for buffering events (TTL 24h enforced on write)
 LIST_SYSTEM_EVENTS = "alita:events:system"
 LIST_MEDIA_EVENTS = "alita:events:media"
+LIST_FINANCE_EVENTS = "alita:events:finance"
 EVENTS_TTL = 86400  # 24h in seconds
 
 
@@ -43,7 +45,11 @@ class AlitaSubscriber:
 
             await self._pubsub.subscribe(CHANNEL_SYSTEM_ALERTS, self._on_system_alert)
             await self._pubsub.subscribe(CHANNEL_MEDIA_RATED, self._on_media_rated)
-            logger.info("alita_subscriber_started", channels=[CHANNEL_SYSTEM_ALERTS, CHANNEL_MEDIA_RATED])
+            await self._pubsub.subscribe(CHANNEL_FINANCE_ALERTS, self._on_finance_alert)
+            logger.info(
+                "alita_subscriber_started",
+                channels=[CHANNEL_SYSTEM_ALERTS, CHANNEL_MEDIA_RATED, CHANNEL_FINANCE_ALERTS],
+            )
         except Exception as exc:
             logger.warning("alita_subscriber_failed", error=str(exc))
             # Non-fatal — Alita works without Redis
@@ -68,6 +74,18 @@ class AlitaSubscriber:
         from .handlers import handle_media_rated
         await handle_media_rated(event, self._redis, LIST_MEDIA_EVENTS, EVENTS_TTL)
 
+    async def _on_finance_alert(self, event: dict) -> None:
+        """Handle finance alerts from VEGAS — bufferise dans LIST_FINANCE_EVENTS."""
+        if not self._redis:
+            return
+        import json
+        try:
+            await self._redis.lpush(LIST_FINANCE_EVENTS, json.dumps(event))
+            await self._redis.expire(LIST_FINANCE_EVENTS, EVENTS_TTL)
+            await self._redis.ltrim(LIST_FINANCE_EVENTS, 0, 49)  # max 50 events
+        except Exception as exc:
+            logger.warning("finance_alert_buffer_error", error=str(exc))
+
     # ------------------------------------------------------------------
     # Buffer access (used by briefing)
     # ------------------------------------------------------------------
@@ -79,6 +97,10 @@ class AlitaSubscriber:
     async def get_recent_media_events(self, limit: int = 10) -> list[dict]:
         """Return buffered media events (last N)."""
         return await _read_list(self._redis, LIST_MEDIA_EVENTS, limit)
+
+    async def get_recent_finance_events(self, limit: int = 10) -> list[dict]:
+        """Return buffered finance events from VEGAS (last N)."""
+        return await _read_list(self._redis, LIST_FINANCE_EVENTS, limit)
 
 
 async def _read_list(redis, key: str, limit: int) -> list[dict]:

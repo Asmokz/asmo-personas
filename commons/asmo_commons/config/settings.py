@@ -169,3 +169,41 @@ class GiorgioSettings(BaseAsmoSettings):
     @property
     def notification_users_list(self) -> list[str]:
         return [u.strip().lower() for u in self.giorgio_notification_users.split(",") if u.strip()]
+
+
+class VegasSettings(BaseAsmoSettings):
+    """Settings for the VEGAS finance bot."""
+
+    # LLM — falls back to ASMO_OLLAMA_MODEL if not set in .env
+    vegas_ollama_model: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _model_fallback(self) -> "VegasSettings":
+        if not self.vegas_ollama_model:
+            self.vegas_ollama_model = self.asmo_ollama_model
+        return self
+
+    # Discord
+    vegas_discord_token: str
+    vegas_discord_channel_id: Optional[int] = None   # canal dédié (répond à tous les messages)
+    vegas_report_channel_id: Optional[int] = None    # canal rapport 18h
+    vegas_report_hour: int = 18
+
+    # SearXNG
+    vegas_searxng_url: str = "http://searxng:8080"
+
+    # Databases
+    vegas_market_db_path: str = "/data/vegas_market.db"
+    vegas_vectors_db_path: str = "/data/vegas_vectors.db"
+
+    # Alita DB (read-only for portfolio)
+    alita_db_path: str = "/data/alita.db"
+
+    # RAG
+    vegas_embed_model: str = "nomic-embed-text"
+
+    # Cron
+    vegas_market_sync_hour: int = 8  # sync yfinance à 8h
+
+    # Causality
+    vegas_causality_url: str = "http://causality:1966"

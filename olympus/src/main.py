@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
 
 async def _init_personas(personas: dict) -> None:
     """Initialise all configured personas, ignoring individual failures."""
-    from asmo_commons.config.settings import AlitaSettings, FemtoSettings, GiorgioSettings
+    from asmo_commons.config.settings import AlitaSettings, FemtoSettings, GiorgioSettings, VegasSettings
 
     # --- Alita ---
     try:
@@ -125,6 +125,18 @@ async def _init_personas(personas: dict) -> None:
     except Exception as exc:
         logger.warning("persona_init_failed", id="giorgio", error=str(exc))
 
+    # --- Vegas ---
+    try:
+        settings = VegasSettings()
+        from olympus.src.personas.vegas import VegasPersona
+        persona = VegasPersona(settings)
+        await persona.init()
+        asyncio.create_task(_build_vegas_knowledge_index(persona))
+        personas["vegas"] = persona
+        logger.info("persona_ready", id="vegas")
+    except Exception as exc:
+        logger.warning("persona_init_failed", id="vegas", error=str(exc))
+
 
 async def _sync_giorgio_library(persona) -> None:
     """Background task to sync Giorgio's Jellyfin library index."""
@@ -133,6 +145,15 @@ async def _sync_giorgio_library(persona) -> None:
         logger.info("giorgio_library_synced")
     except Exception as exc:
         logger.warning("giorgio_library_sync_failed", error=str(exc))
+
+
+async def _build_vegas_knowledge_index(persona) -> None:
+    """Background task to build Vegas knowledge index from MD files."""
+    try:
+        await persona.rag.build_knowledge_index()
+        logger.info("vegas_knowledge_indexed")
+    except Exception as exc:
+        logger.warning("vegas_knowledge_index_failed", error=str(exc))
 
 
 # ---------------------------------------------------------------------------

@@ -179,6 +179,51 @@ services:
       redis:
         condition: service_healthy
 
+  # ── VEGAS ─────────────────────────────────────────────────────────────────
+  vegas:
+    <<: *common
+    build:
+      context: .
+      dockerfile: vegas/Dockerfile
+    container_name: asmo-vegas
+    environment:
+      TZ: "Europe/Paris"
+      ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      ASMO_REDIS_URL: "redis://redis:6379"
+      ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
+      ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
+      # Discord
+      VEGAS_DISCORD_TOKEN: "${VEGAS_DISCORD_TOKEN}"
+      VEGAS_DISCORD_CHANNEL_ID: "${VEGAS_DISCORD_CHANNEL_ID:-}"
+      VEGAS_REPORT_CHANNEL_ID: "${VEGAS_REPORT_CHANNEL_ID:-}"
+      VEGAS_REPORT_HOUR: "${VEGAS_REPORT_HOUR:-18}"
+      # LLM
+      VEGAS_OLLAMA_MODEL: "${VEGAS_OLLAMA_MODEL:-ministral-3:14b}"
+      # SearXNG
+      VEGAS_SEARXNG_URL: "${VEGAS_SEARXNG_URL:-http://searxng:8080}"
+      # Databases
+      VEGAS_MARKET_DB_PATH: "/data/vegas_market.db"
+      VEGAS_VECTORS_DB_PATH: "/data/vegas_vectors.db"
+      # Alita DB (read-only for portfolio) — montée dans /data/alita-shared
+      ALITA_DB_PATH: "/data/alita-shared/alita.db"
+      # RAG
+      VEGAS_EMBED_MODEL: "${VEGAS_EMBED_MODEL:-nomic-embed-text}"
+      # Cron
+      VEGAS_MARKET_SYNC_HOUR: "${VEGAS_MARKET_SYNC_HOUR:-8}"
+      # Causality
+      VEGAS_CAUSALITY_URL: "${VEGAS_CAUSALITY_URL:-http://causality:1966}"
+    volumes:
+      - vegas_data:/data
+      - alita_data:/data/alita-shared:ro  # accès read-only au portefeuille Alita
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # ── OLYMPUS ───────────────────────────────────────────────────────────────
   olympus:
     <<: *common
@@ -232,6 +277,15 @@ services:
       GIORGIO_SEARXNG_URL: "${GIORGIO_SEARXNG_URL:-http://searxng:8080}"
       GIORGIO_EMBED_MODEL: "${GIORGIO_EMBED_MODEL:-nomic-embed-text}"
       GIORGIO_VECTOR_DB_PATH: "/data/giorgio_vectors.db"
+      # --- Vegas ---
+      VEGAS_OLLAMA_MODEL: "${VEGAS_OLLAMA_MODEL:-ministral-3:14b}"
+      VEGAS_DISCORD_TOKEN: "disabled"
+      VEGAS_DISCORD_CHANNEL_ID: "${VEGAS_DISCORD_CHANNEL_ID:-}"
+      VEGAS_MARKET_DB_PATH: "/data/vegas/vegas_market.db"
+      VEGAS_VECTORS_DB_PATH: "/data/vegas/vegas_vectors.db"
+      VEGAS_SEARXNG_URL: "${VEGAS_SEARXNG_URL:-http://searxng:8080}"
+      VEGAS_EMBED_MODEL: "${VEGAS_EMBED_MODEL:-nomic-embed-text}"
+      VEGAS_CAUSALITY_URL: "${VEGAS_CAUSALITY_URL:-http://causality:1966}"
       # --- Olympus ---
       OLYMPUS_DB_PATH: "/data/olympus.db"
       OLYMPUS_JWT_SECRET: "${OLYMPUS_JWT_SECRET}"
@@ -254,6 +308,7 @@ services:
     volumes:
       - alita_data:/data                      # alita.db + olympus.db + training.db
       - femto_data:/data/femto:ro             # FEMTO metrics (read-only)
+      - vegas_data:/data/vegas                # VEGAS market.db + vectors.db
       - /var/run/docker.sock:/var/run/docker.sock:ro   # FEMTO: docker tools
       - /mnt/nas:/mnt/nas:ro                  # FEMTO: NAS tools
     ports:
@@ -315,6 +370,7 @@ volumes:
   femto_data:
   alita_data:
   causality_data:
+  vegas_data:
 
 networks:
   # Attach Giorgio to the existing MariaDB network without migrating data
