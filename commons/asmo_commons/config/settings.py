@@ -31,6 +31,8 @@ class BaseAsmoSettings(BaseSettings):
     asmo_ollama_max_retries: int = 3
     asmo_ollama_retry_min_wait: float = 1.0
     asmo_ollama_retry_max_wait: float = 10.0
+    # Qwen3 and other reasoning models enable "thinking" by default — set False to disable.
+    asmo_ollama_think: Optional[bool] = None
 
     # --- Redis ---
     asmo_redis_url: str = "redis://redis:6379"
@@ -45,12 +47,21 @@ class FemtoSettings(BaseAsmoSettings):
 
     # LLM — falls back to ASMO_OLLAMA_MODEL if not set in .env
     femto_ollama_model: Optional[str] = None
+    # Override think mode for Femto specifically (falls back to asmo_ollama_think)
+    femto_ollama_think: Optional[bool] = None
 
     @model_validator(mode="after")
     def _model_fallback(self) -> "FemtoSettings":
         if not self.femto_ollama_model:
             self.femto_ollama_model = self.asmo_ollama_model
         return self
+
+    @property
+    def ollama_think(self) -> Optional[bool]:
+        """Effective think setting: femto-specific override, then global."""
+        if self.femto_ollama_think is not None:
+            return self.femto_ollama_think
+        return self.asmo_ollama_think
 
     # Discord
     femto_discord_token: str

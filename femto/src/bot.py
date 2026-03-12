@@ -39,6 +39,7 @@ class FemtoBot(BaseBot):
                 max_retries=settings.asmo_ollama_max_retries,
                 retry_min_wait=settings.asmo_ollama_retry_min_wait,
                 retry_max_wait=settings.asmo_ollama_retry_max_wait,
+                think=settings.ollama_think,
             ),
             command_prefix="!",
         )

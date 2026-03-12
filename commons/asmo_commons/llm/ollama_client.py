@@ -36,10 +36,12 @@ class OllamaClient:
         retry_min_wait: float = 1.0,
         retry_max_wait: float = 10.0,
         num_ctx: Optional[int] = None,
+        think: Optional[bool] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.num_ctx = num_ctx
+        self.think = think
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._max_retries = max_retries
         self._retry_min_wait = retry_min_wait
@@ -114,6 +116,15 @@ class OllamaClient:
     # Public API
     # ------------------------------------------------------------------
 
+    def _build_options(self) -> Optional[dict]:
+        """Build Ollama options dict from client settings (num_ctx, think, …)."""
+        opts: dict = {}
+        if self.num_ctx:
+            opts["num_ctx"] = self.num_ctx
+        if self.think is not None:
+            opts["think"] = self.think
+        return opts or None
+
     async def chat(
         self,
         messages: list[dict],
@@ -123,8 +134,9 @@ class OllamaClient:
         """Send a conversation to Ollama and return the assistant text."""
         full_messages = _prepend_system(messages, system_prompt)
         payload: dict = {"model": self.model, "messages": full_messages, "stream": False}
-        if self.num_ctx:
-            payload["options"] = {"num_ctx": self.num_ctx}
+        opts = self._build_options()
+        if opts:
+            payload["options"] = opts
 
         call_id = None
         ts_start = time.time()
@@ -162,8 +174,9 @@ class OllamaClient:
             "tools": tools,
             "stream": False,
         }
-        if self.num_ctx:
-            payload["options"] = {"num_ctx": self.num_ctx}
+        opts = self._build_options()
+        if opts:
+            payload["options"] = opts
 
         call_id = None
         ts_start = time.time()
