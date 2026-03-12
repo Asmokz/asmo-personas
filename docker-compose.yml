@@ -55,6 +55,7 @@ services:
       TZ: "Europe/Paris"
       ASMO_OLLAMA_BASE_URL: "${ASMO_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       FEMTO_OLLAMA_MODEL: "${FEMTO_OLLAMA_MODEL:-ministral-3:14b}"
+      FEMTO_OLLAMA_THINK: "${FEMTO_OLLAMA_THINK:-}"
       ASMO_REDIS_URL: "redis://redis:6379"
       ASMO_LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
       ASMO_LOG_JSON: "${ASMO_LOG_JSON:-true}"
