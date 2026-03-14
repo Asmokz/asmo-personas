@@ -17,6 +17,7 @@ logger = structlog.get_logger()
 CHANNEL_SYSTEM_ALERTS = "asmo.alerts.system"
 CHANNEL_MEDIA_RATED = "asmo.media.rated"
 CHANNEL_FINANCE_ALERTS = "asmo.finance.alerts"
+CHANNEL_RSS = "rss:alita"
 
 # Redis list keys for buffering events (TTL 24h enforced on write)
 LIST_SYSTEM_EVENTS = "alita:events:system"
@@ -46,9 +47,10 @@ class AlitaSubscriber:
             await self._pubsub.subscribe(CHANNEL_SYSTEM_ALERTS, self._on_system_alert)
             await self._pubsub.subscribe(CHANNEL_MEDIA_RATED, self._on_media_rated)
             await self._pubsub.subscribe(CHANNEL_FINANCE_ALERTS, self._on_finance_alert)
+            await self._pubsub.subscribe(CHANNEL_RSS, self._on_rss_item)
             logger.info(
                 "alita_subscriber_started",
-                channels=[CHANNEL_SYSTEM_ALERTS, CHANNEL_MEDIA_RATED, CHANNEL_FINANCE_ALERTS],
+                channels=[CHANNEL_SYSTEM_ALERTS, CHANNEL_MEDIA_RATED, CHANNEL_FINANCE_ALERTS, CHANNEL_RSS],
             )
         except Exception as exc:
             logger.warning("alita_subscriber_failed", error=str(exc))
@@ -73,6 +75,11 @@ class AlitaSubscriber:
         """Handle media rating events from GIORGIO."""
         from .handlers import handle_media_rated
         await handle_media_rated(event, self._redis, LIST_MEDIA_EVENTS, EVENTS_TTL)
+
+    async def _on_rss_item(self, item: dict) -> None:
+        """Handle RSS feed items from rss-dummy — post immediately to Discord."""
+        from .handlers import handle_rss_item
+        await handle_rss_item(self._bot, item)
 
     async def _on_finance_alert(self, event: dict) -> None:
         """Handle finance alerts from VEGAS — bufferise dans LIST_FINANCE_EVENTS."""

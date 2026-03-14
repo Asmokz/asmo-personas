@@ -327,6 +327,27 @@ services:
       retries: 3
       start_period: 60s
 
+  # ── RSS-DUMMY ─────────────────────────────────────────────────────────────
+  rss-dummy:
+    build:
+      context: .
+      dockerfile: rss-dummy/Dockerfile
+    container_name: asmo-rss-dummy
+    restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    environment:
+      TZ: "Europe/Paris"
+      REDIS_URL: "redis://redis:6379/0"
+      LOG_LEVEL: "${ASMO_LOG_LEVEL:-INFO}"
+      LOG_JSON: "${ASMO_LOG_JSON:-true}"
+    volumes:
+      - ./rss-dummy/config:/app/config:ro   # hot-reload feeds.yml without rebuild
+    depends_on:
+      redis:
+        condition: service_healthy
+
   # ── CAUSALITY ─────────────────────────────────────────────────────────────
   causality:
     build:

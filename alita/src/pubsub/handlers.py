@@ -12,6 +12,40 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
+_TAG_EMOJI = {
+    "ai": "🤖",
+    "news": "📰",
+    "homelab": "🏠",
+    "linux": "🐧",
+}
+
+
+async def handle_rss_item(bot: "AlitaBot", item: dict) -> None:
+    """Post an RSS feed item to the briefing channel immediately."""
+    channel_id = bot.settings.alita_briefing_channel_id
+    if not channel_id:
+        return
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        return
+
+    tag = item.get("tag", "")
+    emoji = _TAG_EMOJI.get(tag, "📡")
+    source = item.get("source_name", "")
+    title = item.get("title", "")
+    summary = item.get("summary", "")
+    url = item.get("url", "")
+
+    lines = [f"{emoji} **[{tag.upper()}] {source}**", f"**{title}**"]
+    if summary:
+        lines.append(f"> {summary}")
+    if url:
+        lines.append(f"🔗 {url}")
+
+    await channel.send("\n".join(lines))
+    logger.info("rss_item_posted", tag=tag, source=source)
+
+
 async def handle_system_alert(
     bot: "AlitaBot",
     event: dict,

@@ -1,0 +1,80 @@
+# config/feeds.yml
+# Ajouter un flux : copier un bloc feed et renseigner url, tag, targets
+# Tags disponibles : ai, news, linux, homelab
+# Targets disponibles : alita, femto (liste, un item peut aller sur plusieurs personas)
+
+feeds:
+  # ── IA ──────────────────────────────────────────────
+  - name: "OpenAI Blog"
+    url: "https://openai.com/blog/rss.xml"
+    tag: ai
+    targets: [alita]
+
+  - name: "Mistral Blog"
+    url: "https://mistral.ai/fr/news/rss"
+    tag: ai
+    targets: [alita]
+
+  - name: "Google DeepMind Blog"
+    url: "https://deepmind.google/blog/rss.xml"
+    tag: ai
+    targets: [alita]
+
+  - name: "Hugging Face Blog"
+    url: "https://huggingface.co/blog/feed.xml"
+    tag: ai
+    targets: [alita]
+
+  - name: "Claude Code Changelog"
+    url: "https://claude-code-changelog-rss.stevenmenke.workers.dev/feed.xml"
+    tag: ai
+    targets: [alita]
+
+  # ── NEWS ─────────────────────────────────────────────
+  - name: "Le Monde - Une"
+    url: "https://www.lemonde.fr/rss/une.xml"
+    tag: news
+    targets: [alita]
+
+  - name: "France 24 FR"
+    url: "https://www.france24.com/fr/rss"
+    tag: news
+    targets: [alita]
+
+  - name: "The Guardian World"
+    url: "https://www.theguardian.com/world/rss"
+    tag: news
+    targets: [alita]
+
+  # ── HOMELAB ──────────────────────────────────────────
+  - name: "Home Assistant Blog"
+    url: "https://www.home-assistant.io/atom.xml"
+    tag: homelab
+    targets: [alita, femto]
+
+  - name: "Jellyfin Releases"
+    url: "https://github.com/jellyfin/jellyfin/releases.atom"
+    tag: homelab
+    targets: [alita, femto]
+
+  # ── LINUX ─────────────────────────────────────────────
+  - name: "DistroWatch News"
+    url: "https://distrowatch.com/news/dw.xml"
+    tag: linux
+    targets: [femto]
+
+  - name: "Kernel.org Releases"
+    url: "https://www.kernel.org/feeds/kdist.xml"
+    tag: linux
+    targets: [femto]
+
+  - name: "Pop!_OS Blog"
+    url: "https://blog.system76.com/rss"
+    tag: linux
+    targets: [femto]
+
+settings:
+  poll_interval_hours: 3       # fréquence de polling APScheduler
+  dedup_ttl_multiplier: 2      # TTL Redis = poll_interval_hours × ce multiplicateur
+  request_timeout_seconds: 10  # timeout HTTP par feed
+  max_summary_chars: 500       # troncature du summary avant publication Redis

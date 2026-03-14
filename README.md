@@ -1,6 +1,6 @@
 # ASMO Personas
 
-Cinq services IA autonomes pour le homelab **ASMO-01** : quatre personas conversationnels, une gateway API/PWA, et un middleware d'observabilité LLM.
+Six services IA autonomes pour le homelab **ASMO-01** : quatre personas conversationnels, une gateway API/PWA, un middleware d'observabilité LLM, et un collecteur RSS déterministe.
 
 | Service | Rôle | Port | Statut |
 |---------|------|------|--------|
@@ -10,6 +10,7 @@ Cinq services IA autonomes pour le homelab **ASMO-01** : quatre personas convers
 | **VEGAS** | Analyste financier PEA — screening, analyse, rapport | Discord + Olympus | ✅ Fonctionnel |
 | **OLYMPUS** | Gateway API + PWA Vue.js (auth JWT) | `:8484` | ✅ Fonctionnel |
 | **CAUSALITY** | Observabilité LLM (payloads, latences, GPU) | `:1966` | ✅ Fonctionnel |
+| **RSS-DUMMY** | Collecteur RSS → Redis pub/sub → Discord (pas de LLM) | — | ✅ Fonctionnel |
 
 ---
 
@@ -57,6 +58,14 @@ asmo-personas/
 │           ├── stores/auth.js   # Pinia auth store (access token mémoire uniquement)
 │           ├── composables/useApi.js  # apiFetch — Authorization header + retry 401
 │           └── views/           # LoginView, RegisterView, ChatView
+├── rss-dummy/            # Collecteur RSS sans LLM
+│   ├── config/feeds.yml         # Flux configurés (hot-reload via volume :ro)
+│   └── src/
+│       ├── main.py              # APScheduler — seed run + job toutes les N heures
+│       ├── fetcher.py           # Fetch HTTP séquentiel (feedparser)
+│       ├── normalizer.py        # feedparser.entry → FeedItem (HTML strip, SHA1 guid)
+│       ├── dedup.py             # Redis SET NX EX — filtre les doublons
+│       └── router.py            # target → canal Redis (PUBLISH rss:alita / rss:femto)
 ├── causality/            # Middleware d'observabilité LLM
 │   └── src/
 │       ├── main.py              # FastAPI app (API + UI statique)
@@ -70,7 +79,7 @@ asmo-personas/
 └── .env.example
 ```
 
-**Stack** : Python 3.11 · FastAPI · Vue 3 · Vite · Pinia · Ollama · Redis · Docker Compose · aiosqlite · yfinance · BeautifulSoup4 · faster-whisper · numpy · pynvml · psutil
+**Stack** : Python 3.11 · FastAPI · Vue 3 · Vite · Pinia · Ollama · Redis · Docker Compose · aiosqlite · yfinance · feedparser · BeautifulSoup4 · APScheduler · faster-whisper · numpy · pynvml · psutil
 
 ### Flux inter-services (Redis pub/sub)
 
@@ -85,6 +94,14 @@ CAUSALITY ──► asmo.alerts.causality ──► FEMTO (drift alerts + rappor
                                             │
                                             ▼
                                        Discord (canal FEMTO_REPORT_CHANNEL_ID)
+
+RSS-DUMMY (toutes les 3h, sans LLM)
+  ├── fetch → normalise → dédup Redis (SET NX EX)
+  ├──► rss:alita ──► ALITA ──► Discord (canal ALITA_BRIEFING_CHANNEL_ID)
+  └──► rss:femto ──► FEMTO ──► Discord (canal FEMTO_REPORT_CHANNEL_ID)
+
+  Tags : 🤖 ai (alita) · 📰 news (alita) · 🏠 homelab (alita+femto) · 🐧 linux (femto)
+  Seed run silencieux au démarrage — évite le flood d'articles existants.
 ```
 
 ---
@@ -892,7 +909,10 @@ async def nom_de_loutil(param1: str) -> str:
 - [x] **VEGAS** : pub/sub `asmo.finance.alerts` → ALITA (briefing matinal)
 - [x] **VEGAS** : intégration Olympus PWA (VegasPersona, couleur `#00C853`)
 - [ ] ALITA : intégration Google Calendar / Nextcloud CalDAV
-- [ ] ALITA : résumé d'actualités via flux RSS
+- [x] **RSS-DUMMY** : collecteur RSS déterministe — fetch/normalise/dédup/route vers ALITA et FEMTO
+- [x] **RSS-DUMMY** : seed run silencieux au démarrage (anti-flood)
+- [x] **RSS-DUMMY** : hot-reload `feeds.yml` sans rebuild (volume `:ro`)
+- [x] **ALITA + FEMTO** : subscriber `rss:alita` / `rss:femto` — notification Discord immédiate
 - [ ] GIORGIO : sync périodique de l'index sémantique
 - [ ] OLYMPUS : notifications push PWA (rappels ALITA, alertes FEMTO)
 - [ ] VEGAS : enrichissement du CSV pea_tickers (Xetra, Milan, Madrid)
